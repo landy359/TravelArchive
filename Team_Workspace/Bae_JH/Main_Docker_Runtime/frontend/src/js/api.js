@@ -358,11 +358,12 @@ export const BackendHooks = {
   // 세션 API
   // --------------------------------------------------
 
-  async fetchSessionList(mode = 'personal', tripId = null) {
+  async fetchSessionList(tripId = null) {
     try {
-      const params = new URLSearchParams({ mode });
+      const params = new URLSearchParams();
       if (tripId) params.set('trip_id', tripId);
-      const res = await this._authFetch(`/api/sessions?${params}`);
+      const query = params.toString();
+      const res = await this._authFetch(`/api/sessions${query ? '?' + query : ''}`);
       if (!res.ok) return [];
       const data = await res.json();
       return Array.isArray(data) ? data : (data.sessions || []);
@@ -398,6 +399,20 @@ export const BackendHooks = {
       return await res.json();
     } catch (error) {
       console.error("API Error (updateSessionMode):", error);
+      throw error;
+    }
+  },
+
+  async updateSessionColor(sessionId, color) {
+    try {
+      const res = await this._authFetch(`/api/sessions/${sessionId}/color`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color }),
+      });
+      return await res.json();
+    } catch (error) {
+      console.error("API Error (updateSessionColor):", error);
       throw error;
     }
   },
@@ -530,12 +545,13 @@ export const BackendHooks = {
   // 채팅 API
   // --------------------------------------------------
 
-  async fetchChatHistory(sessionId) {
+  async fetchChatHistory(sessionId, limit = 40, offset = 0) {
     try {
-      const res = await this._authFetch(`/api/sessions/${sessionId}/history`);
+      const res = await this._authFetch(
+        `/api/sessions/${sessionId}/history?limit=${limit}&offset=${offset}`
+      );
       if (!res.ok) return { messages: [], mode: 'personal' };
       const data = await res.json();
-      // {messages: [...], mode: 'personal'|'team'} 형태로 반환
       if (Array.isArray(data)) return { messages: data, mode: 'personal' };
       return { messages: data.messages || [], mode: data.mode || 'personal' };
     } catch (error) {
@@ -556,6 +572,20 @@ export const BackendHooks = {
       });
     } catch (error) {
       console.error('API Error (sendTeamMessage):', error);
+    }
+  },
+
+  async markSessionRead(sessionId) {
+    try {
+      await this._authFetch(`/api/sessions/${sessionId}/read`, { method: 'POST' });
+    } catch { /* 실패해도 무시 */ }
+  },
+
+  async sendTypingEvent(sessionId) {
+    try {
+      await this._authFetch(`/api/sessions/${sessionId}/typing`, { method: 'POST' });
+    } catch {
+      // typing 이벤트는 실패해도 무시
     }
   },
 
@@ -677,8 +707,23 @@ export const BackendHooks = {
     }
   },
 
-  downloadChat(sessionId) {
-    window.location.href = `/api/sessions/${sessionId}/download`;
+  async downloadChat(sessionId) {
+    try {
+      const res = await this._authFetch(`/api/sessions/${sessionId}/download`);
+      if (!res.ok) throw new Error(`다운로드 실패: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chat_${sessionId}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('API Error (downloadChat):', error);
+      throw error;
+    }
   },
 
   // --------------------------------------------------
@@ -1001,5 +1046,27 @@ export const BackendHooks = {
       console.error('API Error (dismissNotification):', error);
       throw error;
     }
+  },
+
+  async clearViewedNotifications() {
+    try {
+      const res = await this._authFetch('/api/notifications/clear-viewed', { method: 'POST' });
+      return await res.json();
+    } catch (error) {
+      console.error('API Error (clearViewedNotifications):', error);
+      throw error;
+    }
+  },
+
+  async adminGetUsers() {
+    const res = await this._authFetch('/api/admin/users');
+    if (!res.ok) throw new Error(`Admin users fetch failed: ${res.status}`);
+    return await res.json();
+  },
+
+  async adminGetSessions() {
+    const res = await this._authFetch('/api/admin/sessions');
+    if (!res.ok) throw new Error(`Admin sessions fetch failed: ${res.status}`);
+    return await res.json();
   },
 };

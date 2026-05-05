@@ -28,8 +28,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         nickname: decodeURIComponent(urlParams.get('nickname') || ''),
         email:    decodeURIComponent(urlParams.get('email')    || ''),
       });
-      // URL 파라미터 제거 (히스토리 깔끔하게)
       window.history.replaceState({}, '', window.location.pathname + (window.location.hash || '#/'));
+    }
+    if (urlParams.get('kakao_linked') === '1') {
+      window.history.replaceState({}, '', window.location.pathname + (window.location.hash || '#/'));
+      // showToast는 아직 초기화 전이므로 짧은 딜레이 후 표시
+      setTimeout(() => {
+        import('./js/ui.js').then(({ showToast }) => showToast('카카오 계정이 연동되었습니다.'));
+      }, 500);
     }
   }
 
@@ -108,6 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     planFilterLabel: document.getElementById('planFilterLabel'),
     planFilterMenu: document.getElementById('planFilterMenu'),
     tempChatBtn: document.getElementById('tempChatBtn'),
+    sessionInfoBtn: document.getElementById('sessionInfoBtn'),
   };
 
   const state = {
@@ -120,15 +127,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 홈 대시보드 "+" 카드 클릭 → 첫 메시지 입력 후 세션 생성 + 자동 전송
   elements._onNewSession = async (firstMsg) => {
-    if (state.isReceiving) return;
+    if (state.isReceiving || state.isTempMode) return;
     try {
       const title = firstMsg || '새 대화';
       const effectiveTripId = state.currentTripId === 'none' ? null : state.currentTripId;
       const session = await BackendHooks.createSession(
-        title, state.currentMode, effectiveTripId
+        title, 'personal', effectiveTripId
       );
       const sid = session.id || session.session_id;
-      SessionManager.renderSidebarItem(session.title, sid, elements, state, true, session.trip_color);
+      SessionManager.renderSidebarItem(session, elements, state, true);
       window.location.hash = `#/chat/${sid}`;
 
       if (firstMsg) {
@@ -161,16 +168,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // router.js가 호출할 수 있도록 elements에 임시채팅 탈출 함수 노출 (아래에서 정의 후 덮어씀)
   elements._exitTempMode = () => {};
 
-  // 알림 수락 후 팀 플래너로 전환하는 헬퍼 (notification.js에서 호출)
+  // 알림 수락 후 세션 목록 갱신 (notification.js에서 호출)
   elements._switchToTeamMode = () => {
-    if (state.currentMode === 'team') return;
-    state.currentMode = 'team';
-    if (elements.mainTeamPlannerBtn) {
-      elements.mainTeamPlannerBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-        개인 플래너
-      `;
-    }
     SessionManager.init(elements, state);
   };
 
@@ -262,7 +261,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   function applyAuthGate(isLoggedIn) {
     const gatedEls = [
       elements.newChatBtn,
-      elements.mainTeamPlannerBtn,
       elements.tabCalendar,
       elements.planFilterTrigger,
     ];
@@ -278,6 +276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       elements.tempChatBtn.style.display = isLoggedIn ? '' : 'none';
     }
 
+    // 관리자 디버그 버튼: admin 계정일 때만 표시
     if (elements.sidebarList) {
       if (!isLoggedIn) {
         elements.sidebarList.innerHTML = `
@@ -295,6 +294,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await initTripDropdown();
     await SessionManager.init(elements, state);
     NotificationManager.startPolling(state, elements);
+    NotificationManager.startSSE(state, elements); // 실시간 알림 SSE
   });
 
   // ── 로그아웃 이벤트: account.js → script.js 브리지 ────────
@@ -305,6 +305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       state._sseConnection = null;
     }
     NotificationManager.stopPolling();
+    NotificationManager.stopSSE();
 
     state.currentSessionId = null;
     state.currentTripId    = null;
@@ -386,6 +387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       NotificationManager.init(elements, state);
       if (TokenManager.isLoggedIn()) {
         NotificationManager.startPolling(state, elements);
+        NotificationManager.startSSE(state, elements);
       }
 
       // 마커 정보 패널 초기화 (map iframe과 postMessage 통신)
@@ -474,37 +476,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!state.isReceiving) elements._onNewSession(null);
   });
 
-  elements.mainTeamPlannerBtn?.addEventListener('click', () => {
-    if (SidebarManager.isMobile()) SidebarManager.closeSidebar(elements);
-    
-    // Toggle Mode
-    state.currentMode = state.currentMode === 'personal' ? 'team' : 'personal';
-    
-    // Update Button UI
-    if (state.currentMode === 'team') {
-      elements.mainTeamPlannerBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-        개인 플래너
-      `;
-    } else {
-      elements.mainTeamPlannerBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
-        팀 플래너
-      `;
-    }
+  // mainTeamPlannerBtn은 더 이상 사용하지 않음 (세션 통합으로 모드 전환 불필요)
+  if (elements.mainTeamPlannerBtn) elements.mainTeamPlannerBtn.style.display = 'none';
 
-    // Refresh session list + re-evaluate SSE for current chat
-    SessionManager.init(elements, state);
-    router(state, elements);
-    showToast(`${state.currentMode === 'team' ? '팀' : '개인'} 플래너로 전환되었습니다.`);
-    setTimeout(window.updatePlaceholder, 310);
-  });
-
-  ['settings', 'account', 'help'].forEach(v => {
+  ['settings', 'account'].forEach(v => {
     elements[`${v}Btn`].addEventListener('click', () => {
       if (SidebarManager.isMobile()) SidebarManager.closeSidebar(elements);
       window.location.hash = `#/${v}`;
     });
+  });
+
+  elements.helpBtn?.addEventListener('click', () => {
+    if (SidebarManager.isMobile()) SidebarManager.closeSidebar(elements);
+    window.location.hash = '#/help';
   });
 
   // ── 임시 채팅 모드 진입/탈출 헬퍼 ─────────────────────────
@@ -533,11 +517,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   // router.js에서 접근 가능하도록 연결
   elements._exitTempMode = _exitTempMode;
 
-  // 임시 채팅 버튼: 로그인 사용자가 저장 없는 채팅 시작
+  // 임시 채팅 버튼: 임시 모드이면 종료, 아니면 진입
   elements.tempChatBtn?.addEventListener('click', () => {
     if (SidebarManager.isMobile()) SidebarManager.closeSidebar(elements);
+    if (state.isTempMode) {
+      // 재클릭 → 임시 채팅 종료
+      _exitTempMode();
+      return;
+    }
+    // 기존 SSE 연결 즉시 종료
+    if (state._sseConnection) {
+      state._sseConnection.close();
+      state._sseConnection = null;
+    }
+    // 세션 상태 완전 초기화
+    state.currentSessionId = null;
+    state.currentSessionMode = null;
+    // hash가 이미 '#/'일 수도 있으므로 먼저 진입 처리 후 hash 변경
     _enterTempMode();
-    window.location.hash = '#/';
+    if (window.location.hash === '#/') {
+      router(state, elements);
+    } else {
+      window.location.hash = '#/';
+    }
   });
 
   // 전송 핸들러: 비로그인 또는 임시 채팅 모드 시 임시 챗봇, 로그인 시 정상 세션 사용
@@ -577,7 +579,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   elements.sendBtn.addEventListener('click', _handleSendOrTemp);
   elements.chatInput.addEventListener('keydown', (e) => (e.key === 'Enter' && !e.shiftKey && !e.isComposing) && (e.preventDefault(), _handleSendOrTemp()));
-  elements.chatInput.addEventListener('input', () => adjustTextareaHeight(elements.chatInput, elements.chatBox));
+  elements.chatInput.addEventListener('input', () => {
+    adjustTextareaHeight(elements.chatInput, elements.chatBox);
+  });
   elements.expandBtn.addEventListener('click', () => {
     const input = elements.chatInput;
     const box = elements.chatBox;
@@ -623,8 +627,65 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   elements.attachBtn.addEventListener('click', () => elements.fileInput.click());
   elements.fileInput.addEventListener('change', (e) => e.target.files.length > 0 && ChatManager.handleFileUpload(e.target.files, state, elements));
+  ChatManager.setupPasteHandler(state, elements);
+  ChatManager.setupMentionAutocomplete(state, elements);
 
-  elements.downloadChatBtn.addEventListener('click', () => state.currentSessionId && confirm("다운로드하시겠습니까?") && BackendHooks.downloadChat(state.currentSessionId));
+  elements.downloadChatBtn.addEventListener('click', async () => {
+    if (!state.currentSessionId || !confirm("다운로드하시겠습니까?")) return;
+    try { await BackendHooks.downloadChat(state.currentSessionId); }
+    catch { alert('다운로드에 실패했습니다. 잠시 후 다시 시도해 주세요.'); }
+  });
+
+  // 세션 정보 버튼
+  elements.sessionInfoBtn?.addEventListener('click', async () => {
+    if (!state.currentSessionId) return;
+    try {
+      const res = await BackendHooks._authFetch(`/api/sessions/${state.currentSessionId}/info`);
+      if (!res.ok) return;
+      const info = await res.json();
+      _showSessionInfoModal(info);
+    } catch (e) { console.error(e); }
+  });
+
+  function _showSessionInfoModal(info) {
+    const existing = document.getElementById('session-info-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'session-info-modal';
+    modal.className = 'modal-overlay show';
+
+    const participants = (info.participants || []).map(p => `
+      <div class="session-info-participant">
+        <div class="session-info-avatar">${(p.nickname || p.user_id || '?').charAt(0).toUpperCase()}</div>
+        <div class="session-info-pname">${p.nickname || p.user_id}${p.role === 'master' ? ' <span class="session-info-master-badge">마스터</span>' : ''}</div>
+      </div>`).join('');
+
+    const tripDot = info.trip_color ? `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${info.trip_color};margin-right:6px;vertical-align:middle;"></span>` : '';
+    const tripDisplay = info.trip_title
+      ? `${tripDot}${info.trip_title}`
+      : '<span style="color:var(--text-secondary,#9ca3af)">단독 세션</span>';
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:400px;">
+        <div class="modal-header">
+          <h3 style="margin:0;font-size:16px;font-weight:700;">세션 정보</h3>
+          <button class="modal-close-btn" style="font-size:22px;background:none;border:none;cursor:pointer;color:#9ca3af;line-height:1;">&times;</button>
+        </div>
+        <div>
+          <div class="session-info-row"><span class="session-info-label">이름</span><span>${info.title || '-'}</span></div>
+          <div class="session-info-row"><span class="session-info-label">모드</span><span>${info.mode === 'team' ? '팀 대화' : '개인 플래너'}</span></div>
+          <div class="session-info-row"><span class="session-info-label">여행</span><span>${tripDisplay}</span></div>
+          <div class="session-info-row"><span class="session-info-label">생성일</span><span>${info.created_at ? info.created_at.substring(0, 10) : '-'}</span></div>
+          <div class="session-info-section-title" style="margin-top:12px;">참여자 (${(info.participants || []).length}명)</div>
+          <div class="session-info-participants">${participants || '<span style="color:var(--text-secondary,#9ca3af)">없음</span>'}</div>
+        </div>
+      </div>`;
+
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-close-btn').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  }
 
   // Window utilities
   window.updatePlaceholder = () => {

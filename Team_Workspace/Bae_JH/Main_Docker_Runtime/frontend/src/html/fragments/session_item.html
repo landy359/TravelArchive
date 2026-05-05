@@ -1,4 +1,5 @@
 <div class="sidebar-item-wrapper" data-session-id="{{sessionId}}">
+  <div class="session-color-bar" style="{{colorBarStyle}}"></div>
   <button class="sidebar-item" data-session-id="{{sessionId}}">
     <span class="trip-color-dot" style="{{tripColorStyle}}"></span>{{title}}
   </button>
@@ -10,13 +11,17 @@
         <span class="icon">[[Edit]]</span>
         <span>이름 변경</span>
       </div>
-      <div class="dropdown-item invite-btn" style="display: none;">
+      <div class="dropdown-item invite-btn">
         <span class="icon">[[UserPlus]]</span>
         <span>여행친구 초대</span>
       </div>
-      <div class="dropdown-item team-planner-btn">
-        <span class="icon">[[Map]]</span>
-        <span>팀 플래너 이동</span>
+      <div class="dropdown-item color-change-btn" style="display: none;">
+        <span class="icon">[[Palette]]</span>
+        <span>색상 변경</span>
+      </div>
+      <div class="dropdown-item convert-personal-btn" style="display: none;">
+        <span class="icon">[[Home]]</span>
+        <span>개인 대화로 전환</span>
       </div>
       <div class="dropdown-divider"></div>
       <div class="dropdown-item delete-btn danger">

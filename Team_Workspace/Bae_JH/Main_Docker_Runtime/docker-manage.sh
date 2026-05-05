@@ -13,6 +13,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 스크립트 위치
@@ -26,6 +27,12 @@ COMPOSE_FILES=(
   "docker-compose-nginx.yml"
 )
 
+# 빌드가 필요한 서비스 (공식 이미지만 쓰는 DB/Redis 제외)
+BUILD_COMPOSE_FILES=(
+  "docker-compose-system.yml"
+  "docker-compose-nginx.yml"
+)
+
 ################################################################################
 # 함수 정의
 ################################################################################
@@ -34,7 +41,7 @@ COMPOSE_FILES=(
 print_banner() {
   echo -e "${BLUE}"
   echo "╔════════════════════════════════════════════════════════════╗"
-  echo "║       TravelArchive Docker 관리 도구 v1.0                 ║"
+  echo "║       TravelArchive Docker 관리 도구 v1.1                 ║"
   echo "╚════════════════════════════════════════════════════════════╝"
   echo -e "${NC}"
 }
@@ -50,8 +57,10 @@ show_menu() {
   echo "4) 🗑️  모든 컨테이너 삭제"
   echo "5) 📊 컨테이너 상태 확인"
   echo "6) 📜 컨테이너 로그 보기"
-  echo "7) 🔨 서비스별 관리"
-  echo "8) ❌ 종료"
+  echo "7) 🔧 서비스별 관리"
+  echo -e "${CYAN}8) 🔨 빌드 후 재시작  (캐시 사용)${NC}"
+  echo -e "${CYAN}9) ♻️  빌드 후 재시작  (캐시 없음 — 완전 재빌드)${NC}"
+  echo "0) ❌ 종료"
   echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
@@ -229,6 +238,91 @@ show_logs() {
   done
 }
 
+################################################################################
+# 빌드 함수
+################################################################################
+
+# 빌드 후 재시작 (공통 로직)
+# $1: "nocache" 이면 --no-cache 플래그 추가
+_build_and_restart() {
+  local nocache_flag=""
+  local label="일반 빌드"
+  if [ "$1" = "nocache" ]; then
+    nocache_flag="--no-cache"
+    label="캐시 없는 완전 재빌드"
+  fi
+
+  echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${CYAN}빌드 후 재시작 시작 [$label]${NC}"
+  echo -e "${CYAN}대상: Backend API + Frontend (Nginx)${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+  cd "$SCRIPT_DIR"
+
+  # 1단계: 빌드 대상 컨테이너 중지
+  print_info "[1/3] 기존 컨테이너 중지..."
+  for file in "${BUILD_COMPOSE_FILES[@]}"; do
+    if [ -f "$file" ]; then
+      docker compose -f "$file" down
+    fi
+  done
+
+  # 2단계: 이미지 빌드
+  print_info "[2/3] 이미지 빌드 중... ($label)"
+  for file in "${BUILD_COMPOSE_FILES[@]}"; do
+    if [ -f "$file" ]; then
+      print_info "  빌드: $file"
+      # shellcheck disable=SC2086
+      docker compose -f "$file" build $nocache_flag
+    fi
+  done
+
+  # 3단계: 컨테이너 기동
+  print_info "[3/3] 컨테이너 시작..."
+  for file in "${BUILD_COMPOSE_FILES[@]}"; do
+    if [ -f "$file" ]; then
+      docker compose -f "$file" up -d
+    fi
+  done
+
+  echo ""
+  print_success "빌드 및 재시작 완료! [$label]"
+  echo ""
+
+  # 상태 간략 출력
+  docker ps --filter "name=TA_" --format "  {{.Names}}: {{.Status}}"
+
+  echo ""
+  read -p "Enter 키를 눌러 메인 메뉴로 돌아가기..."
+}
+
+# 단일 서비스 빌드 후 시작
+# $1: compose 파일명  $2: 컨테이너 이름(로그용)  $3: "nocache" 옵션
+_build_service() {
+  local file="$1"
+  local name="$2"
+  local nocache_flag=""
+  local label="일반 빌드"
+  if [ "$3" = "nocache" ]; then
+    nocache_flag="--no-cache"
+    label="캐시 없는 완전 재빌드"
+  fi
+
+  cd "$SCRIPT_DIR"
+  print_info "$name 중지..."
+  docker compose -f "$file" down
+  print_info "$name 빌드 중... ($label)"
+  # shellcheck disable=SC2086
+  docker compose -f "$file" build $nocache_flag
+  print_info "$name 시작..."
+  docker compose -f "$file" up -d
+  print_success "$name 빌드 및 재시작 완료! [$label]"
+}
+
+################################################################################
+# 서비스별 관리
+################################################################################
+
 # 서비스별 관리
 manage_service() {
   while true; do
@@ -236,24 +330,12 @@ manage_service() {
     read -p "선택 (1-5): " service_choice
 
     case $service_choice in
-      1)
-        manage_database
-        ;;
-      2)
-        manage_cache
-        ;;
-      3)
-        manage_backend
-        ;;
-      4)
-        manage_frontend
-        ;;
-      5)
-        break
-        ;;
-      *)
-        print_error "잘못된 선택입니다."
-        ;;
+      1) manage_database ;;
+      2) manage_cache ;;
+      3) manage_backend ;;
+      4) manage_frontend ;;
+      5) break ;;
+      *) print_error "잘못된 선택입니다." ;;
     esac
   done
 }
@@ -307,7 +389,9 @@ manage_backend() {
   echo "2) 중지"
   echo "3) 재부팅"
   echo "4) 로그"
-  read -p "선택 (1-4): " backend_choice
+  echo -e "${CYAN}5) 🔨 빌드 후 시작  (캐시 사용)${NC}"
+  echo -e "${CYAN}6) ♻️  빌드 후 시작  (캐시 없음)${NC}"
+  read -p "선택 (1-6): " backend_choice
 
   cd "$SCRIPT_DIR"
   case $backend_choice in
@@ -315,6 +399,8 @@ manage_backend() {
     2) docker compose -f docker-compose-system.yml down && print_success "Backend 중지됨" ;;
     3) docker compose -f docker-compose-system.yml restart && print_success "Backend 재부팅됨" ;;
     4) docker logs --tail 50 -f TA_backend ;;
+    5) _build_service docker-compose-system.yml TA_backend ;;
+    6) _build_service docker-compose-system.yml TA_backend nocache ;;
     *) print_error "잘못된 선택입니다." ;;
   esac
 
@@ -328,7 +414,9 @@ manage_frontend() {
   echo "2) 중지"
   echo "3) 재부팅"
   echo "4) 로그"
-  read -p "선택 (1-4): " frontend_choice
+  echo -e "${CYAN}5) 🔨 빌드 후 시작  (캐시 사용)${NC}"
+  echo -e "${CYAN}6) ♻️  빌드 후 시작  (캐시 없음)${NC}"
+  read -p "선택 (1-6): " frontend_choice
 
   cd "$SCRIPT_DIR"
   case $frontend_choice in
@@ -336,6 +424,8 @@ manage_frontend() {
     2) docker compose -f docker-compose-nginx.yml down && print_success "Frontend 중지됨" ;;
     3) docker compose -f docker-compose-nginx.yml restart && print_success "Frontend 재부팅됨" ;;
     4) docker logs --tail 50 -f TA_nginx ;;
+    5) _build_service docker-compose-nginx.yml TA_nginx ;;
+    6) _build_service docker-compose-nginx.yml TA_nginx nocache ;;
     *) print_error "잘못된 선택입니다." ;;
   esac
 
@@ -358,7 +448,7 @@ main() {
     clear
     print_banner
     show_menu
-    read -p "선택 (1-8): " choice
+    read -p "선택 (0-9): " choice
 
     case $choice in
       1) start_all ;;
@@ -368,7 +458,9 @@ main() {
       5) status_check ;;
       6) show_logs ;;
       7) manage_service ;;
-      8)
+      8) _build_and_restart ;;
+      9) _build_and_restart nocache ;;
+      0)
         echo -e "\n${GREEN}TravelArchive 관리 도구를 종료합니다.${NC}"
         exit 0
         ;;

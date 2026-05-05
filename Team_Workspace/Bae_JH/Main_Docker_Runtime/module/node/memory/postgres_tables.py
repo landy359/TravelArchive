@@ -190,6 +190,7 @@ class Session(Base):
     created_by      = Column(String(40),  ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     mode            = Column(String(20),  nullable=False, server_default="personal")  # personal / team
     title           = Column(String(255), nullable=True)
+    color           = Column(String(20),  nullable=True)
     is_manual_title = Column(Boolean,     nullable=False, server_default="false")
     topic           = Column(Text,        nullable=True)
     context_summary = Column(Text,        nullable=True)

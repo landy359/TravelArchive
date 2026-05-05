@@ -7,57 +7,73 @@ import { Icons } from './assets.js';
 import { renderTemplate, createElementFromHTML } from './utils.js';
 import { updateSidebarSessionTitle, showToast } from './ui.js';
 
+const TEAM_COLOR     = '#2a9d5c';
+const PERSONAL_COLOR = '#f97316';
+
 // 드롭다운 외부 클릭 시 닫기 — 세션 수에 관계없이 단 한 번만 등록
 document.addEventListener('click', () => {
   document.querySelectorAll('.session-dropdown-menu.show').forEach(m => m.classList.remove('show'));
 });
 
 export const SessionManager = {
-  _initSeq: 0,  // race condition guard: 마지막 init 호출만 DOM에 반영
+  _initSeq: 0,
 
-  renderSidebarItem(title, sessionId, elements, state, isPrepend = true, tripColor = null, userRole = 'master') {
+  renderSidebarItem(session, elements, state, isPrepend = false) {
+    const sessionId        = session.session_id || session.id;
+    const title            = session.title || '(제목 없음)';
+    const tripColor        = session.trip_color || null;
+    const userRole         = session.user_role  || 'master';
+    const participantCount = session.participant_count || 1;
+    const unreadCount      = session.unread_count      || 0;
+    const isTeam           = participantCount > 1;
+
     const tripColorStyle = tripColor ? `background:${tripColor}` : '';
-    const html = renderTemplate('session_item', { title, sessionId, tripColorStyle }, Icons);
+
+    // 좌측 색상 바: 팀=세션/트립 색상 or 기본 초록, 개인=주황
+    const barColor     = isTeam ? (session.color || tripColor || TEAM_COLOR) : PERSONAL_COLOR;
+    const colorBarStyle = `background:${barColor}`;
+
+    const html = renderTemplate('session_item', {
+      title,
+      sessionId,
+      tripColorStyle,
+      colorBarStyle,
+    }, Icons);
     const wrapper = createElementFromHTML(html);
 
-    const newBtn = wrapper.querySelector('.sidebar-item');
-    const editInput = wrapper.querySelector('.sidebar-item-edit-input');
-    const actionsDiv = wrapper.querySelector('.session-actions');
-    const moreBtn = wrapper.querySelector('.more-btn');
-    const dropdownMenu = wrapper.querySelector('.session-dropdown-menu');
-    const editBtn = wrapper.querySelector('.edit-btn');
-    const deleteBtn = wrapper.querySelector('.delete-btn');
-    const teamPlannerBtn = wrapper.querySelector('.team-planner-btn');
-    const inviteBtn = wrapper.querySelector('.invite-btn');
-
-    // Configure the 'Move' button based on current mode
-    const moveBtnText = teamPlannerBtn.querySelector('span:last-child');
-    const moveBtnIcon = teamPlannerBtn.querySelector('.icon');
-    
-    if (state.currentMode === 'team') {
-      inviteBtn.style.display = 'flex';
-      moveBtnText.textContent = '개인 플래너 이동';
-      moveBtnIcon.innerHTML = Icons.Home;
-      // 마스터가 아니면 개인 전환 버튼 비활성화
-      if (userRole !== 'master') {
-        teamPlannerBtn.disabled = true;
-        teamPlannerBtn.title = '마스터만 전환할 수 있습니다';
-        teamPlannerBtn.style.opacity = '0.4';
-        teamPlannerBtn.style.cursor = 'not-allowed';
-      }
-    } else {
-      moveBtnText.textContent = '팀 플래너 이동';
-      moveBtnIcon.innerHTML = Icons.Map;
+    // 미읽음: trip-color-dot에 unread 클래스 on/off
+    if (unreadCount > 0) {
+      const dot = wrapper.querySelector('.trip-color-dot');
+      if (dot) dot.classList.add('unread');
     }
-    
+
+    const newBtn             = wrapper.querySelector('.sidebar-item');
+    const editInput          = wrapper.querySelector('.sidebar-item-edit-input');
+    const actionsDiv         = wrapper.querySelector('.session-actions');
+    const moreBtn            = wrapper.querySelector('.more-btn');
+    const dropdownMenu       = wrapper.querySelector('.session-dropdown-menu');
+    const editBtn            = wrapper.querySelector('.edit-btn');
+    const deleteBtn          = wrapper.querySelector('.delete-btn');
+    const inviteBtn          = wrapper.querySelector('.invite-btn');
+    const colorChangeBtn     = wrapper.querySelector('.color-change-btn');
+    const convertPersonalBtn = wrapper.querySelector('.convert-personal-btn');
+    const colorBar           = wrapper.querySelector('.session-color-bar');
+
+    // 색상 변경 + 개인 전환은 팀 세션에서만 표시 (단, 색상 변경은 마스터 아니어도 표시)
+    if (isTeam) {
+      colorChangeBtn.style.display = 'flex';
+    }
+    if (isTeam && userRole === 'master') {
+      convertPersonalBtn.style.display = 'flex';
+    }
+
     newBtn.addEventListener('click', () => {
       if (state.isReceiving) return;
       window.location.hash = `#/chat/${sessionId}`;
     });
-    
+
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      // Close other open menus
       document.querySelectorAll('.session-dropdown-menu.show').forEach(menu => {
         if (menu !== dropdownMenu) menu.classList.remove('show');
       });
@@ -72,35 +88,19 @@ export const SessionManager = {
       editInput.style.display = 'block';
       editInput.focus();
     });
-    
+
     deleteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       dropdownMenu.classList.remove('show');
-      if(confirm("삭제하시겠습니까?")) {
+      if (confirm('삭제하시겠습니까?')) {
         try {
           const response = await BackendHooks.deleteSession(sessionId);
           if (response.success) {
             wrapper.remove();
-            showToast(`삭제됨`);
+            showToast('삭제됨');
             if (state.currentSessionId === sessionId) window.location.hash = '#/';
           }
         } catch (error) { console.error(error); }
-      }
-    });
-
-    teamPlannerBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (teamPlannerBtn.disabled) return;
-      dropdownMenu.classList.remove('show');
-
-      const targetMode = state.currentMode === 'personal' ? 'team' : 'personal';
-
-      try {
-        await BackendHooks.updateSessionMode(sessionId, targetMode);
-        wrapper.remove();
-        showToast(`${targetMode === 'team' ? '팀' : '개인'} 플래너로 이동되었습니다.`);
-      } catch (error) {
-        console.error("Failed to move session mode:", error);
       }
     });
 
@@ -164,13 +164,100 @@ export const SessionManager = {
       input.focus();
     });
 
+    colorChangeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu.classList.remove('show');
+
+      // 기존 팔레트 제거
+      document.querySelectorAll('.session-color-palette').forEach(p => p.remove());
+
+      const COLORS = [
+        '#2a9d5c', '#3b82f6', '#8b5cf6', '#ec4899',
+        '#f97316', '#eab308', '#ef4444', '#06b6d4',
+        '#64748b', '#000000',
+      ];
+      const palette = document.createElement('div');
+      palette.className = 'session-color-palette';
+      palette.style.cssText = [
+        'position:absolute', 'z-index:9999', 'background:var(--bg-primary,#fff)',
+        'border:1px solid var(--border-color,#e2e8f0)', 'border-radius:10px',
+        'padding:10px', 'display:flex', 'flex-wrap:wrap', 'gap:6px',
+        'width:160px', 'box-shadow:0 4px 16px rgba(0,0,0,.15)',
+      ].join(';');
+
+      COLORS.forEach(c => {
+        const swatch = document.createElement('button');
+        swatch.style.cssText = `width:24px;height:24px;border-radius:50%;background:${c};border:2px solid transparent;cursor:pointer;transition:transform .15s`;
+        swatch.addEventListener('mouseenter', () => { swatch.style.transform = 'scale(1.2)'; });
+        swatch.addEventListener('mouseleave', () => { swatch.style.transform = ''; });
+        swatch.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          palette.remove();
+          try {
+            await BackendHooks.updateSessionColor(sessionId, c);
+            if (colorBar) colorBar.style.background = c;
+            showToast('색상이 변경되었습니다.');
+          } catch {
+            showToast('색상 변경에 실패했습니다.');
+          }
+        });
+        palette.appendChild(swatch);
+      });
+
+      // 커스텀 색상 입력
+      const customInput = document.createElement('input');
+      customInput.type = 'color';
+      customInput.style.cssText = 'width:24px;height:24px;border:none;padding:0;cursor:pointer;border-radius:50%';
+      customInput.addEventListener('change', async () => {
+        const c = customInput.value;
+        palette.remove();
+        try {
+          await BackendHooks.updateSessionColor(sessionId, c);
+          if (colorBar) colorBar.style.background = c;
+          showToast('색상이 변경되었습니다.');
+        } catch {
+          showToast('색상 변경에 실패했습니다.');
+        }
+      });
+      palette.appendChild(customInput);
+
+      // 위치 계산: wrapper 기준
+      const rect = wrapper.getBoundingClientRect();
+      palette.style.left = `${rect.right + 4}px`;
+      palette.style.top  = `${rect.top}px`;
+      document.body.appendChild(palette);
+
+      const closePalette = (ev) => {
+        if (!palette.contains(ev.target)) {
+          palette.remove();
+          document.removeEventListener('click', closePalette);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', closePalette), 0);
+    });
+
+    convertPersonalBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      dropdownMenu.classList.remove('show');
+      if (!confirm('개인 대화로 전환하면 다른 참여자가 모두 퇴장됩니다. 계속하시겠습니까?')) return;
+      try {
+        await BackendHooks.updateSessionMode(sessionId, 'personal');
+        showToast('개인 대화로 전환되었습니다.');
+        wrapper.remove();
+        if (state.currentSessionId === sessionId) window.location.hash = '#/';
+      } catch {
+        showToast('전환에 실패했습니다.');
+      }
+    });
+
+    let currentTitle = title;
     const saveTitle = async () => {
       const newTitle = editInput.value.trim();
-      if (newTitle && newTitle !== title) {
+      if (newTitle && newTitle !== currentTitle) {
         try {
           await BackendHooks.updateSessionTitle(sessionId, newTitle);
           updateSidebarSessionTitle(sessionId, newTitle);
-          title = newTitle;
+          currentTitle = newTitle;
         } catch (error) { console.error(error); }
       }
       editInput.style.display = 'none';
@@ -181,13 +268,12 @@ export const SessionManager = {
     editInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') saveTitle();
       else if (e.key === 'Escape') {
-        editInput.value = title;
+        editInput.value = currentTitle;
         editInput.style.display = 'none';
         newBtn.style.display = 'flex';
         actionsDiv.style.display = '';
       }
     });
-    
     editInput.addEventListener('blur', saveTitle);
 
     if (isPrepend) elements.sidebarList.prepend(wrapper);
@@ -197,15 +283,23 @@ export const SessionManager = {
   async init(elements, state) {
     const seq    = ++this._initSeq;
     elements.sidebarList.innerHTML = '';
-    const mode   = state.currentMode   || 'personal';
     const tripId = state.currentTripId || null;
 
     try {
-      const sessions = await BackendHooks.fetchSessionList(mode, tripId);
-      if (seq !== this._initSeq) return; // 더 최신 init이 실행됐으면 결과 버림
+      const sessions = await BackendHooks.fetchSessionList(tripId);
+      if (seq !== this._initSeq) return;
       for (const session of sessions) {
-        this.renderSidebarItem(session.title, session.session_id || session.id, elements, state, false, session.trip_color, session.user_role || 'master');
+        this.renderSidebarItem(session, elements, state, false);
       }
     } catch (error) { console.error(error); }
-  }
+  },
+
+  // 미읽음 dot를 해당 세션 아이템에서 지움 (세션 진입 시 호출)
+  clearUnreadDot(sessionId) {
+    const wrapper = document.querySelector(`.sidebar-item-wrapper[data-session-id="${sessionId}"]`);
+    if (wrapper) {
+      const dot = wrapper.querySelector('.trip-color-dot');
+      if (dot) dot.classList.remove('unread');
+    }
+  },
 };

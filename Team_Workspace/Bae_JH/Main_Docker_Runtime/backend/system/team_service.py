@@ -119,6 +119,9 @@ class TeamService:
     async def invite_user_to_session(session_id: str, inviter_id: str,
                                       invitee_id: str, postgres) -> dict:
         """세션 초대 → Notification 생성 (수락 전까지 SessionParticipant 추가 안 함)."""
+        if invitee_id == inviter_id:
+            raise HTTPException(status_code=400, detail="자신을 초대할 수 없습니다")
+
         already = await postgres.execute({
             "action":  "read", "model": "SessionParticipant",
             "filters": {"session_id": session_id, "user_id": invitee_id},
@@ -158,6 +161,7 @@ class TeamService:
 
         notif_id = "notif_" + str(uuid.uuid4())[:12]
         now = datetime.now(tz=timezone.utc)
+        message = f"{inviter_nick}님이 '{session_title}' 세션에 초대했습니다"
         await postgres.execute({
             "action": "create", "model": "Notification",
             "data": {
@@ -166,10 +170,22 @@ class TeamService:
                 "type":            "session_invite",
                 "reference_type":  "session",
                 "reference_id":    session_id,
-                "message":         f"{inviter_nick}님이 '{session_title}' 세션에 초대했습니다",
+                "message":         message,
                 "is_read":         False,
                 "created_at":      now,
             },
         })
+        # 초대 대상에게 실시간 알림 push
+        try:
+            from ..router.router import Router
+            await Router.push_notification_to_user(invitee_id, {
+                "notification_id": notif_id,
+                "sub_type":        "session_invite",
+                "message":         message,
+                "session_id":      session_id,
+            })
+        except Exception:
+            pass
+
         return {"success": True, "session_id": session_id, "invitee": invitee_id,
                 "notification_id": notif_id}

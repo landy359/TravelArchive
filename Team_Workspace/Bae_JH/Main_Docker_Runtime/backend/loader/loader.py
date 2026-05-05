@@ -228,62 +228,50 @@ class Loader:
 
     @staticmethod
     async def get_session_list(postgres, user_id: str,
-                                trip_id: Optional[str] = None,
-                                mode: str = "personal") -> list:
+                                trip_id: Optional[str] = None) -> list:
         """
-        사용자의 세션 목록 반환.
-        trip_id=None → 전체, trip_id='none' → 기타(trip 없는 세션), trip_id=값 → 해당 여행 세션
+        사용자의 세션 목록 반환 (팀/개인 통합).
+        팀 세션(참여자 2명 이상) 먼저, 그 다음 개인 세션 — 각 그룹 내에서 updated_at DESC.
+        trip_id=None → 전체, trip_id='none' → trip 없는 세션, trip_id=값 → 해당 여행 세션.
+        unread_count: 내가 마지막으로 읽은 이후 다른 사람이 보낸 메시지 수.
         """
-        # "mode"는 PostgreSQL 18에서 ordered-set aggregate로 파싱될 수 있어 반드시 쿼팅
-        base_where = """
-            sp_me.user_id = :user_id
-            AND s."mode" = :mode
-            AND s.is_active = true
-        """
-        if trip_id == "none":
-            sql = f"""
-                SELECT s.session_id, s.title, s.topic, s."mode",
-                       s.trip_id, s.is_manual_title, s.created_at, s.updated_at,
-                       NULL AS trip_color, NULL AS trip_title,
-                       sp_me.role AS user_role
-                FROM sessions s
-                JOIN session_participants sp_me
-                  ON sp_me.session_id = s.session_id AND sp_me.user_id = :user_id
-                WHERE {base_where}
-                  AND s.trip_id IS NULL
-                ORDER BY s.updated_at DESC
-            """
-            params = {"user_id": user_id, "mode": mode}
-        elif trip_id:
-            sql = f"""
-                SELECT s.session_id, s.title, s.topic, s."mode",
-                       s.trip_id, s.is_manual_title, s.created_at, s.updated_at,
-                       tr.color AS trip_color, tr.title AS trip_title,
-                       sp_me.role AS user_role
-                FROM sessions s
-                JOIN session_participants sp_me
-                  ON sp_me.session_id = s.session_id AND sp_me.user_id = :user_id
-                LEFT JOIN trips tr ON s.trip_id = tr.trip_id
-                WHERE {base_where}
-                  AND s.trip_id = :trip_id
-                ORDER BY s.updated_at DESC
-            """
-            params = {"user_id": user_id, "mode": mode, "trip_id": trip_id}
-        else:
-            sql = f"""
-                SELECT s.session_id, s.title, s.topic, s."mode",
-                       s.trip_id, s.is_manual_title, s.created_at, s.updated_at,
-                       tr.color AS trip_color, tr.title AS trip_title,
-                       sp_me.role AS user_role
-                FROM sessions s
-                JOIN session_participants sp_me
-                  ON sp_me.session_id = s.session_id AND sp_me.user_id = :user_id
-                LEFT JOIN trips tr ON s.trip_id = tr.trip_id
-                WHERE {base_where}
-                ORDER BY s.updated_at DESC
-            """
-            params = {"user_id": user_id, "mode": mode}
+        trip_filter = ""
+        params: dict = {"user_id": user_id}
 
+        if trip_id == "none":
+            trip_filter = "AND s.trip_id IS NULL"
+        elif trip_id:
+            trip_filter = "AND s.trip_id = :trip_id"
+            params["trip_id"] = trip_id
+
+        sql = f"""
+            SELECT
+                s.session_id, s.title, s.topic, s."mode", s.color,
+                s.trip_id, s.is_manual_title, s.created_at, s.updated_at,
+                tr.color  AS trip_color,
+                tr.title  AS trip_title,
+                sp_me.role AS user_role,
+                (
+                    SELECT COUNT(*) FROM session_participants sp2
+                    WHERE sp2.session_id = s.session_id
+                ) AS participant_count,
+                (
+                    SELECT COUNT(*) FROM conversations c
+                    WHERE c.session_id = s.session_id
+                      AND c.sender_id  != :user_id
+                      AND (sp_me.last_read_at IS NULL OR c.created_at > sp_me.last_read_at)
+                ) AS unread_count
+            FROM sessions s
+            JOIN session_participants sp_me
+              ON sp_me.session_id = s.session_id AND sp_me.user_id = :user_id
+            LEFT JOIN trips tr ON s.trip_id = tr.trip_id
+            WHERE s.is_active = true
+              {trip_filter}
+            ORDER BY
+                (SELECT COUNT(*) FROM session_participants sp3
+                 WHERE sp3.session_id = s.session_id) > 1 DESC,
+                s.updated_at DESC
+        """
         result = await postgres.execute({"action": "raw_sql", "sql": sql, "params": params})
         return result.get("data", [])
 
@@ -325,7 +313,7 @@ class Loader:
         now = datetime.now(tz=timezone.utc)
         update_data = {"updated_at": now}
         for field in ("title", "is_manual_title", "topic", "context_summary",
-                       "trip_id", "mode", "is_active"):
+                       "trip_id", "mode", "is_active", "color"):
             if field in data:
                 update_data[field] = data[field]
 
@@ -406,29 +394,94 @@ class Loader:
         rows = r.get("data", [])
         return rows[0]["role"] if rows else None
 
+    @staticmethod
+    async def get_session_info(postgres, session_id: str) -> dict:
+        """세션 기본 정보 + 참여자 목록(닉네임, 역할) 반환."""
+        sr = await postgres.execute({
+            "action": "raw_sql",
+            "sql": """
+                SELECT s.session_id, s.title, s.mode, s.created_at, s.trip_id,
+                       t.title AS trip_title, t.color AS trip_color
+                FROM sessions s
+                LEFT JOIN trips t ON t.trip_id = s.trip_id
+                WHERE s.session_id = :sid
+            """,
+            "params": {"sid": session_id},
+        })
+        session = (sr.get("data") or [{}])[0]
+
+        pr = await postgres.execute({
+            "action": "raw_sql",
+            "sql": """
+                SELECT sp.user_id, sp.role, sp.joined_at,
+                       COALESCE(up.nickname, sp.user_id) AS nickname
+                FROM session_participants sp
+                LEFT JOIN user_profile up ON up.user_id = sp.user_id
+                WHERE sp.session_id = :sid
+                ORDER BY sp.joined_at ASC
+            """,
+            "params": {"sid": session_id},
+        })
+        participants = []
+        for p in pr.get("data", []):
+            participants.append({
+                "user_id":   p.get("user_id"),
+                "nickname":  p.get("nickname", ""),
+                "role":      p.get("role"),
+                "joined_at": str(p.get("joined_at", "")),
+            })
+
+        return {
+            "session_id":  session_id,
+            "title":       session.get("title", ""),
+            "mode":        session.get("mode", "personal"),
+            "created_at":  str(session.get("created_at", "")),
+            "trip_id":     session.get("trip_id"),
+            "trip_title":  session.get("trip_title"),
+            "trip_color":  session.get("trip_color"),
+            "participants": participants,
+        }
+
     # ── 대화 기록 ────────────────────────────────────────────
 
     @staticmethod
-    async def get_conversation_history(postgres, session_id: str) -> list:
+    async def get_conversation_history(postgres, session_id: str,
+                                        limit: int = 40, offset: int = 0) -> list:
         result = await postgres.execute({
             "action": "raw_sql",
             "sql": """
-                SELECT sender_id, sender_type, content, created_at
-                FROM conversations
-                WHERE session_id = :sid
-                ORDER BY created_at ASC
+                SELECT c.sender_id, c.sender_type, c.content, c.created_at,
+                       c.message_type, c.message_id,
+                       COALESCE(up.nickname, c.sender_id) AS sender_name
+                FROM conversations c
+                LEFT JOIN user_profile up ON up.user_id = c.sender_id
+                WHERE c.session_id = :sid
+                ORDER BY c.created_at DESC
+                LIMIT :lim OFFSET :off
             """,
-            "params": {"sid": session_id},
+            "params": {"sid": session_id, "lim": limit, "off": offset},
         })
         msgs = []
         for row in result.get("data", []):
             role = "user" if row.get("sender_type") == "user" else "bot"
+            msg_type = row.get("message_type", "text") or "text"
+            files = []
+            if msg_type == "file":
+                import re as _re
+                content = row.get("content", "")
+                m = _re.match(r'^\[파일 첨부\] (.+)$', content)
+                if m:
+                    files = [f.strip() for f in m.group(1).split(',') if f.strip()]
             msgs.append({
-                "role":       role,
-                "content":    row.get("content", ""),
-                "created_at": row.get("created_at"),
-                "sender_id":  row.get("sender_id"),
+                "role":        role,
+                "content":     row.get("content", ""),
+                "created_at":  str(row.get("created_at", "")),
+                "sender_id":   row.get("sender_id"),
+                "sender_name": row.get("sender_name", ""),
+                "msg_type":    msg_type,
+                "files":       files,
             })
+        msgs.reverse()
         return msgs
 
     # ── 팀 ──────────────────────────────────────────────────
@@ -449,18 +502,20 @@ class Loader:
         return await TeamService.get_team_sessions(team_id, postgres)
 
     @staticmethod
-    async def search_users(postgres, q: str) -> dict:
-        """닉네임으로 사용자 검색 (ILIKE)."""
+    async def search_users(postgres, q: str, current_user_id: Optional[str] = None) -> dict:
+        """닉네임으로 사용자 검색 (ILIKE). 자신은 결과에서 제외."""
         result = await postgres.execute({
             "action": "raw_sql",
             "sql": """
                 SELECT up.user_id, up.nickname
                 FROM user_profile up
                 JOIN users u ON up.user_id = u.user_id
-                WHERE up.nickname ILIKE :q AND u.status = 'active'
+                WHERE up.nickname ILIKE :q
+                  AND u.status = 'active'
+                  AND (:exclude_id IS NULL OR up.user_id != :exclude_id)
                 LIMIT 10
             """,
-            "params": {"q": f"%{q}%"},
+            "params": {"q": f"%{q}%", "exclude_id": current_user_id},
         })
         return {"users": result.get("data", [])}
 
@@ -486,6 +541,7 @@ class Loader:
                     AND n.type = 'session_invite'
                     AND n.reference_type = 'user'
                 WHERE n.user_id = :user_id
+                  AND n.is_read = false
                 ORDER BY n.created_at DESC
                 LIMIT 50
             """,
@@ -530,6 +586,19 @@ class Loader:
                     "last_read_at": now,
                 },
             })
+            # 참여자가 2명 이상이 되면 세션 mode를 team으로 자동 전환
+            cnt_r = await postgres.execute({
+                "action": "raw_sql",
+                "sql": "SELECT COUNT(*) AS cnt FROM session_participants WHERE session_id = :sid",
+                "params": {"sid": session_id},
+            })
+            cnt = int((cnt_r.get("data") or [{}])[0].get("cnt", 0))
+            if cnt >= 2:
+                await postgres.execute({
+                    "action":  "update", "model": "Session",
+                    "filters": {"session_id": session_id},
+                    "data":    {"mode": "team", "updated_at": datetime.now(tz=timezone.utc)},
+                })
 
         await postgres.execute({
             "action": "update", "model": "Notification",
@@ -544,5 +613,15 @@ class Loader:
             "action":  "update", "model": "Notification",
             "filters": {"notification_id": notification_id, "user_id": user_id},
             "data":    {"is_read": True},
+        })
+        return {"success": True}
+
+    @staticmethod
+    async def clear_viewed_notifications(postgres, user_id: str) -> dict:
+        """읽음 처리된 알림을 is_read=true로 일괄 표시 (DB 유지, UI 숨김용)."""
+        await postgres.execute({
+            "action": "raw_sql",
+            "sql": "UPDATE notifications SET is_read = true WHERE user_id = :uid",
+            "params": {"uid": user_id},
         })
         return {"success": True}

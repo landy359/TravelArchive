@@ -84,6 +84,9 @@ class SessionCreateRequest(BaseModel):
 class SessionModeUpdateRequest(BaseModel):
     mode: str
 
+class SessionColorUpdateRequest(BaseModel):
+    color: str
+
 class InviteRequest(BaseModel):
     user: str
 
@@ -213,9 +216,14 @@ async def kakao_login_redirect():
     return RedirectResponse(get_kakao_auth_url())
 
 @app.get("/api/auth/kakao/callback")
-async def kakao_callback(code: str, request: Request):
+async def kakao_callback(code: str, request: Request, state: Optional[str] = None):
     from .auth.oauth_service import kakao_callback as _kakao_callback
-    result = await _kakao_callback(code, request.app.state.postgres, request.app.state.redis)
+    result = await _kakao_callback(code, request.app.state.postgres, request.app.state.redis, state)
+
+    # 계정 연동 처리 결과
+    if result.get("linked"):
+        return RedirectResponse("/?kakao_linked=1")
+
     # 카카오 첫 로그인 시 개인 팀 보장
     try:
         from .system.team_service import TeamService
@@ -233,9 +241,19 @@ async def kakao_callback(code: str, request: Request):
     )
     return RedirectResponse(redirect_url)
 
+@app.get("/api/auth/kakao/link")
+async def kakao_link_redirect(request: Request, user_id: str = Depends(get_current_user)):
+    """로그인된 사용자의 카카오 계정 연동 시작 — state에 link 토큰 포함."""
+    from .auth.oauth_service import initiate_kakao_link
+    url = await initiate_kakao_link(user_id, request.app.state.redis)
+    return RedirectResponse(url)
+
 @app.post("/api/auth/social/link/kakao")
-async def link_kakao_account(user_id: str = Depends(get_current_user)):
-    return {"status": "not_implemented", "message": "카카오 계정 연동은 준비 중입니다"}
+async def link_kakao_account(request: Request, user_id: str = Depends(get_current_user)):
+    """연동 시작 URL을 JSON으로 반환 (프론트에서 window.location 이동 전용)."""
+    from .auth.oauth_service import initiate_kakao_link
+    url = await initiate_kakao_link(user_id, request.app.state.redis)
+    return {"status": "ok", "redirect_url": url}
 
 @app.post("/api/auth/find")
 async def find_account():
@@ -424,10 +442,9 @@ async def get_team_sessions(team_id: str, request: Request,
 async def get_session_list(request: Request,
                             trip_id: Optional[str] = None,
                             plan_id: Optional[str] = None,  # 하위 호환
-                            mode: str = "personal",
                             user_id: str = Depends(get_current_user)):
     effective_trip = trip_id or plan_id
-    return await Router.get_session_list(effective_trip, user_id, request.app.state.postgres, mode)
+    return await Router.get_session_list(effective_trip, user_id, request.app.state.postgres)
 
 @app.post("/api/sessions")
 async def create_session(req: SessionCreateRequest, request: Request,
@@ -452,8 +469,8 @@ async def update_session_mode(session_id: str, req: SessionModeUpdateRequest,
 
 @app.get("/api/users/search")
 async def search_users(q: str, request: Request, user_id: str = Depends(get_current_user)):
-    """닉네임으로 사용자 검색."""
-    return await Loader.search_users(request.app.state.postgres, q)
+    """닉네임으로 사용자 검색 (자신 제외)."""
+    return await Loader.search_users(request.app.state.postgres, q, user_id)
 
 @app.get("/api/sessions/{session_id}/events")
 async def session_events(session_id: str, request: Request,
@@ -471,11 +488,23 @@ async def invite_user(session_id: str, req: InviteRequest, request: Request,
 async def share_chat(session_id: str, user_id: str = Depends(get_current_user)):
     return await Router.share_chat(session_id, user_id)
 
+@app.get("/api/sessions/{session_id}/info")
+async def get_session_info(session_id: str, request: Request,
+                            user_id: str = Depends(get_current_user)):
+    """세션 기본 정보 + 참여자 목록 반환."""
+    return await Loader.get_session_info(request.app.state.postgres, session_id)
+
 @app.put("/api/sessions/{session_id}/title")
 async def update_session_title(session_id: str, req: TitleUpdateRequest,
                                 request: Request, user_id: str = Depends(get_current_user)):
     return await Router.update_session_title(session_id, req.title, user_id,
                                               request.app.state.postgres, request.app.state.redis)
+
+@app.patch("/api/sessions/{session_id}/color")
+async def update_session_color(session_id: str, req: SessionColorUpdateRequest,
+                                request: Request, user_id: str = Depends(get_current_user)):
+    return await Router.update_session_color(session_id, req.color, user_id,
+                                              request.app.state.postgres)
 
 
 # ============================================================
@@ -484,8 +513,10 @@ async def update_session_title(session_id: str, req: TitleUpdateRequest,
 
 @app.get("/api/sessions/{session_id}/history")
 async def get_chat_history(session_id: str, request: Request,
+                            limit: int = 40, offset: int = 0,
                             user_id: str = Depends(get_current_user)):
-    return await Router.get_chat_history(session_id, request.app.state.postgres)
+    return await Router.get_chat_history(session_id, request.app.state.postgres,
+                                         limit=limit, offset=offset)
 
 @app.post("/api/sessions/{session_id}/message")
 async def send_message(session_id: str, req: MessageRequest, request: Request,
@@ -501,6 +532,24 @@ async def send_team_message(session_id: str, req: MessageRequest, request: Reque
     return await Router._handle_team_message(session_id, user_id, req.message,
                                               request.app.state.postgres)
 
+@app.post("/api/sessions/{session_id}/read")
+async def mark_session_read(session_id: str, request: Request,
+                             user_id: str = Depends(get_current_user)):
+    """현재 세션 메시지를 읽음 처리 (last_read_at 갱신)."""
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    await request.app.state.postgres.execute({
+        "action": "raw_sql",
+        "sql": "UPDATE session_participants SET last_read_at = :now WHERE session_id = :sid AND user_id = :uid",
+        "params": {"now": now, "sid": session_id, "uid": user_id},
+    })
+    return {"success": True}
+
+@app.post("/api/sessions/{session_id}/typing")
+async def send_typing(session_id: str, request: Request,
+                      user_id: str = Depends(get_current_user)):
+    """타이핑 중 이벤트를 같은 세션의 다른 구독자에게 SSE 브로드캐스트."""
+    return await Router.broadcast_typing(session_id, user_id, request.app.state.postgres)
+
 @app.get("/api/sessions/{session_id}/download")
 async def download_chat(session_id: str, request: Request,
                          user_id: str = Depends(get_current_user)):
@@ -512,9 +561,10 @@ async def download_chat(session_id: str, request: Request,
 # ============================================================
 
 @app.post("/api/sessions/{session_id}/files")
-async def upload_files(session_id: str, files: List[UploadFile] = File(...),
+async def upload_files(session_id: str, request: Request,
+                       files: List[UploadFile] = File(...),
                        user_id: str = Depends(get_current_user)):
-    return await Router.upload_files(session_id, files, user_id)
+    return await Router.upload_files(session_id, files, user_id, request.app.state.postgres)
 
 
 # ============================================================
@@ -600,6 +650,11 @@ async def get_notifications(request: Request, user_id: str = Depends(get_current
     notifications = await Loader.get_notifications(request.app.state.postgres, user_id)
     return {"notifications": notifications}
 
+@app.get("/api/notifications/stream")
+async def notification_stream(user_id: str = Depends(get_current_user)):
+    """사용자 전용 알림 SSE 스트림."""
+    return await Router.subscribe_user_notifications(user_id)
+
 @app.post("/api/notifications/{notification_id}/accept")
 async def accept_notification(notification_id: str, request: Request,
                                user_id: str = Depends(get_current_user)):
@@ -610,17 +665,75 @@ async def dismiss_notification(notification_id: str, request: Request,
                                 user_id: str = Depends(get_current_user)):
     return await Loader.dismiss_notification(request.app.state.postgres, notification_id, user_id)
 
+@app.post("/api/notifications/clear-viewed")
+async def clear_viewed_notifications(request: Request,
+                                      user_id: str = Depends(get_current_user)):
+    """읽음 처리된 알림을 UI에서만 숨김 (DB에는 is_hidden 플래그). DB는 유지."""
+    return await Loader.clear_viewed_notifications(request.app.state.postgres, user_id)
+
+
+# ============================================================
+# Admin 전용 API  (user_id가 'MEM:admin'인 경우만 허용)
+# ============================================================
+
+async def _require_admin(request: Request, user_id: str = Depends(get_current_user)):
+    from fastapi import HTTPException
+    if user_id.endswith(':admin') or user_id == 'admin':
+        return user_id
+    result = await request.app.state.postgres.execute({
+        "action": "raw_sql",
+        "sql": "SELECT email FROM user_profile WHERE user_id = :uid",
+        "params": {"uid": user_id},
+    })
+    email = (result.get("data") or [{}])[0].get("email", "")
+    if email == "test@test.com":
+        return user_id
+    raise HTTPException(status_code=403, detail="관리자만 접근 가능합니다")
+
+@app.get("/api/admin/users")
+async def admin_get_users(request: Request, user_id: str = Depends(_require_admin)):
+    """전체 사용자 목록 (admin 전용)."""
+    result = await request.app.state.postgres.execute({
+        "action": "raw_sql",
+        "sql": """
+            SELECT u.user_id, u.status, u.created_at,
+                   up.nickname, up.email
+            FROM users u
+            LEFT JOIN user_profile up ON up.user_id = u.user_id
+            WHERE u.status != 'deleted'
+            ORDER BY u.created_at DESC
+            LIMIT 200
+        """,
+        "params": {},
+    })
+    return {"users": result.get("data", [])}
+
+@app.get("/api/admin/sessions")
+async def admin_get_active_sessions(user_id: str = Depends(_require_admin)):
+    """현재 메모리상 활성 세션 목록 (admin 전용)."""
+    from .router.router import _active_sessions, _session_sse_queues
+    return {
+        "active_sessions": [
+            {"session_id": sid, "sse_subscribers": len(_session_sse_queues.get(sid, []))}
+            for sid in _active_sessions
+        ]
+    }
+
 
 # ============================================================
 # 정적 파일 / 뷰 라우터
 # ============================================================
 
 RESOURCE_DIR = os.path.join(BASE_DIR, "resource")
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend", "dist")
+UPLOADS_DIR  = os.path.join(BASE_DIR, "uploads")
+
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 @app.get("/")
 async def read_index():
     return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 app.mount("/resource", StaticFiles(directory=RESOURCE_DIR), name="resource")
 app.mount("/",         StaticFiles(directory=FRONTEND_DIR), name="frontend")

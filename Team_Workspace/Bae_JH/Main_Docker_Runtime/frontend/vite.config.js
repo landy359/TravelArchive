@@ -1,20 +1,31 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
+const BACKEND = 'https://localhost:443';
+
 export default defineConfig({
-  envDir: resolve(__dirname, '../setting'), 
-  
-  root: resolve(__dirname, 'src'), 
-  
+  envDir: resolve(__dirname, '../setting'),
+
+  root: resolve(__dirname, 'src'),
+
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    proxy: {
+      '/api':      { target: BACKEND, secure: false, changeOrigin: true },
+      '/uploads':  { target: BACKEND, secure: false, changeOrigin: true },
+      '/resource': { target: BACKEND, secure: false, changeOrigin: true },
+    },
+  },
+
   build: {
-    outDir: resolve(__dirname, 'dist'), 
+    outDir: resolve(__dirname, 'dist'),
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        // root가 src로 지정되었으므로 경로 탐색이 더 깔끔해집니다.
         main: resolve(__dirname, 'src/html/index.html'),
-        map: resolve(__dirname, 'src/html/map.html')
-      }
-    }
-  }
+        map:  resolve(__dirname, 'src/html/map.html'),
+      },
+    },
+  },
 });

@@ -38,6 +38,30 @@ def get_kakao_auth_url() -> str:
     return "https://kauth.kakao.com/oauth/authorize?" + urlencode(params)
 
 
+async def initiate_kakao_link(user_id: str, redis: RedisManager) -> str:
+    """
+    계정 연동 흐름 시작.
+    state 토큰을 Redis에 저장(5분 TTL)하고 카카오 인가 URL을 반환.
+    콜백에서 state를 확인해 연동 vs 신규로그인을 분기한다.
+    """
+    if not KAKAO_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="카카오 로그인이 설정되지 않았습니다")
+    link_token = str(uuid.uuid4())
+    await redis.execute({
+        "action": "set",
+        "key":    f"kakao_link:{link_token}",
+        "value":  user_id,
+        "ttl":    300,  # 5분
+    })
+    params = {
+        "client_id":     KAKAO_CLIENT_ID,
+        "redirect_uri":  KAKAO_REDIRECT_URI,
+        "response_type": "code",
+        "state":         link_token,
+    }
+    return "https://kauth.kakao.com/oauth/authorize?" + urlencode(params)
+
+
 async def _exchange_code(code: str) -> str:
     """authorization code → 카카오 access_token 교환."""
     body = {
@@ -72,11 +96,12 @@ async def kakao_callback(
     code: str,
     postgres: PostgresManager,
     redis: RedisManager,
+    state: str = None,
 ) -> dict:
     """
-    카카오 콜백 처리 → 서비스 JWT 발급.
-    - 신규 유저: KKO 계정 생성 (users + user_oauth + user_profile + user_preferences)
-    - 기존 유저: user_oauth에서 user_id 조회 후 로그인
+    카카오 콜백 처리.
+    - state가 Redis의 kakao_link:{state} 키와 매칭되면 → 계정 연동 (UserOAuth 레코드 추가)
+    - 그 외 → 신규 KKO 계정 생성 또는 기존 KKO 계정 로그인 후 JWT 발급
     """
     kakao_token  = await _exchange_code(code)
     info         = await _get_user_info(kakao_token)
@@ -86,21 +111,55 @@ async def kakao_callback(
     kakao_profile   = kakao_account.get("profile", {})
     nickname        = kakao_profile.get("nickname", "")
     profile_img_url = kakao_profile.get("profile_image_url", "")
-    email           = kakao_account.get("email")  # 이메일 제공 동의 시에만 존재
+    email           = kakao_account.get("email")
 
-    # 기존 유저 확인
+    now = datetime.now(tz=timezone.utc)
+
+    # ── 계정 연동 흐름 ──────────────────────────────────────
+    if state:
+        link_key = f"kakao_link:{state}"
+        link_result = await redis.execute({"action": "get", "key": link_key})
+        link_user_id = link_result.get("value") if link_result else None
+
+        if link_user_id:
+            # Redis 키 소비 (1회용)
+            await redis.execute({"action": "delete", "key": link_key})
+
+            # 이미 연동된 카카오 계정인지 확인
+            existing = await postgres.execute({
+                "action":  "read",
+                "model":   "UserOAuth",
+                "filters": {"provider": "kakao", "provider_uid": provider_uid},
+            })
+            if existing.get("status") == "success" and existing.get("data"):
+                raise HTTPException(status_code=409, detail="이미 다른 계정에 연동된 카카오 계정입니다")
+
+            oauth_id = "oauth_" + str(uuid.uuid4())[:16]
+            result = await postgres.execute({
+                "action": "create", "model": "UserOAuth",
+                "data": {
+                    "oauth_id":    oauth_id,
+                    "user_id":     link_user_id,
+                    "provider":    "kakao",
+                    "provider_uid": provider_uid,
+                    "created_at":  now,
+                },
+            })
+            if result.get("status") != "success":
+                raise HTTPException(status_code=500, detail="카카오 계정 연동 실패")
+
+            return {"linked": True, "user_id": link_user_id}
+
+    # ── 일반 로그인/신규 가입 흐름 ─────────────────────────
     oauth_result = await postgres.execute({
         "action":  "read",
         "model":   "UserOAuth",
         "filters": {"provider": "kakao", "provider_uid": provider_uid},
     })
 
-    now = datetime.now(tz=timezone.utc)
-
     if oauth_result.get("status") == "success" and oauth_result.get("data"):
         user_id = oauth_result["data"][0]["user_id"]
     else:
-        # 신규 KKO 유저 생성
         user_id  = "KKO:" + str(uuid.uuid4())[:16]
         oauth_id = "oauth_" + str(uuid.uuid4())[:16]
 
@@ -123,7 +182,6 @@ async def kakao_callback(
                     detail=f"KKO 계정 생성 실패 ({payload['model']}): {result.get('reason')}",
                 )
 
-    # JWT 발급
     access_token       = create_access_token(user_id)
     refresh_token, jti = create_refresh_token(user_id)
 

@@ -593,6 +593,15 @@
   box-sizing: border-box;
 }
 
+.session-color-bar {
+  flex-shrink: 0;
+  width: 4px;
+  height: 32px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+
+
 .sidebar-item {
   width: 100%;
   display: flex;
@@ -625,7 +634,11 @@
   height: 8px;
   flex-shrink: 0;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.8);
+  background: transparent;
+}
+
+.trip-color-dot.unread {
+  background: #3b82f6 !important;
 }
 
 .sidebar-item-edit-input {

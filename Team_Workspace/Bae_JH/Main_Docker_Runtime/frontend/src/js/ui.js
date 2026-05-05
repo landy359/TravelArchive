@@ -62,18 +62,98 @@ export function removeLoadingIndicator(id) {
   document.getElementById(id)?.remove();
 }
 
-export function appendMessage(chatHistory, text, sender) {
+/**
+ * @param {HTMLElement} chatHistory
+ * @param {string} text
+ * @param {'user'|'bot'|'system'} sender
+ * @param {object} [meta] - { senderName, senderId, time, isTeam }
+ */
+const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','svg']);
+const VIDEO_EXTS = new Set(['mp4','webm','ogg','mov']);
+
+export function renderFileInMsg(msgDiv, fileUrl, fname) {
+  const ext = (fname.split('.').pop() || '').toLowerCase();
+  if (IMAGE_EXTS.has(ext)) {
+    const img = document.createElement('img');
+    img.src = fileUrl;
+    img.className = 'chat-media-preview';
+    img.alt = fname;
+    img.style.cssText = 'max-width:280px;max-height:220px;border-radius:12px;cursor:pointer;display:block;margin-bottom:4px;';
+    img.addEventListener('click', () => window.open(fileUrl, '_blank'));
+    msgDiv.appendChild(img);
+  } else if (VIDEO_EXTS.has(ext)) {
+    const video = document.createElement('video');
+    video.src = fileUrl;
+    video.controls = true;
+    video.style.cssText = 'max-width:280px;max-height:220px;border-radius:12px;display:block;margin-bottom:4px;';
+    msgDiv.appendChild(video);
+  } else {
+    const wrap = document.createElement('a');
+    wrap.href = fileUrl;
+    wrap.download = fname;
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;background:var(--bg-secondary,rgba(0,0,0,.07));text-decoration:none;margin-bottom:4px;max-width:260px;';
+    const icon = document.createElement('span');
+    icon.textContent = '📎';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = fname;
+    nameSpan.style.cssText = 'color:var(--accent,#6366f1);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    wrap.appendChild(icon);
+    wrap.appendChild(nameSpan);
+    msgDiv.appendChild(wrap);
+  }
+}
+
+export function appendMessage(chatHistory, text, sender, meta = {}) {
+  const {
+    senderName = '', senderId = '', time = '', isTeam = false,
+    mediaFile = null, msgType = null, files = [], sessionId = '',
+  } = meta;
+
+  const isFileMsg = msgType === 'file' || mediaFile != null;
+
   let processedText = text;
-  if (sender === 'bot' && text && typeof marked !== 'undefined') {
+  if (sender === 'bot' && text && !isFileMsg && typeof marked !== 'undefined') {
     processedText = marked.parse(text);
   }
 
-  const html = renderTemplate('message', { sender, text: processedText }, Icons);
+  const avatarChar = senderName
+    ? senderName.charAt(0).toUpperCase()
+    : (sender === 'user' ? 'U' : 'B');
+
+  const displayTime = time
+    ? _formatMessageTime(time)
+    : _formatMessageTime(new Date().toISOString());
+
+  const html = renderTemplate('message', {
+    sender,
+    text: isFileMsg ? '' : processedText,
+    senderId,
+    senderName: isTeam ? senderName : '',
+    avatarChar: isTeam ? avatarChar : '',
+    time: displayTime,
+  }, Icons);
+
   const rowDiv = createElementFromHTML(html);
   const msgDiv = rowDiv.querySelector('.message');
   const copyBtn = rowDiv.querySelector('.copy-btn');
 
-  if (!(sender === 'bot' && text && typeof marked !== 'undefined')) {
+  if (!isTeam) {
+    const avatar = rowDiv.querySelector('.message-avatar');
+    const nameEl = rowDiv.querySelector('.message-sender-name');
+    if (avatar) avatar.style.display = 'none';
+    if (nameEl) nameEl.style.display = 'none';
+  }
+
+  // 파일 메시지 렌더링 (발신: blob URL / 수신: /uploads/ 경로)
+  if (mediaFile) {
+    const url = URL.createObjectURL(mediaFile);
+    renderFileInMsg(msgDiv, url, mediaFile.name);
+  } else if (msgType === 'file' && files.length > 0) {
+    for (const fname of files) {
+      const fileUrl = `/uploads/${sessionId}/${senderId}/${fname}`;
+      renderFileInMsg(msgDiv, fileUrl, fname);
+    }
+  } else if (!(sender === 'bot' && text && typeof marked !== 'undefined')) {
     msgDiv.textContent = text;
   }
 
@@ -92,4 +172,14 @@ export function appendMessage(chatHistory, text, sender) {
   chatHistory.appendChild(rowDiv);
   chatHistory.scrollTop = chatHistory.scrollHeight;
   return rowDiv;
+}
+
+function _formatMessageTime(isoOrDate) {
+  try {
+    const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch {
+    return '';
+  }
 }
