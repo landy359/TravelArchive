@@ -11,11 +11,10 @@
   <!-- Fallback for browsers that don't support media queries in link tags -->
   <link rel="shortcut icon" href="/assets/Logo_B.svg" />
   <link rel="stylesheet" href="/styles.css" />
-  <!-- 지도 컴포넌트 CSS -->
+  <!-- 지도/마커 위젯 CSS 는 위젯 JS 가 import 로 번들 -->
   <link rel="stylesheet" href="/css/components/marker-info.css" />
-  <link rel="stylesheet" href="/css/components/overlay.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script type="module" src="/script.js"></script>
+  <script type="module" src="/main.js"></script>
 </head>
 <body>
   <div class="bg-scene">
@@ -275,12 +274,27 @@
         
         <div class="right-sidebar-content" id="rightSidebarContent">
           <div id="kakaoMapContainer">
-              <iframe 
+              <iframe
                 id="mapFrame"
                 src="/html/map.html"
                 style="width:100%; height:100%; border:none; border-radius:12px;"
                 title="지도">
               </iframe>
+          </div>
+
+          <!-- 계획 박스 (마커 패널과 동일한 스타일, 콘텐츠 비어 있음) -->
+          <div id="rs-plan-box" class="rs-plan-box">
+            <div class="rs-dropdown-header" data-plan-header>
+              <div class="rs-header-content">
+                <div class="rs-header-info">
+                  <div class="rs-header-title">계획</div>
+                </div>
+              </div>
+              <div class="rs-header-actions">
+                <button class="rs-header-btn rs-toggle-btn" data-plan-toggle title="접기/펴기"></button>
+              </div>
+            </div>
+            <div class="rs-plan-content" data-plan-content></div>
           </div>
         </div>
       </aside>

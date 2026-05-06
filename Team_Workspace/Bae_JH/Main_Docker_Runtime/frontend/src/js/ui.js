@@ -4,6 +4,11 @@
 
 import { Icons } from './assets.js';
 import { renderTemplate, createElementFromHTML } from './utils.js';
+import { mount as mountLoadingIndicator } from '../widgets/loading-indicator/index.js';
+import {
+  mount as mountChatMessage,
+  renderFileInMsg as _renderFileInMsg,
+} from '../widgets/chat-message/index.js';
 
 export function updateSidebarSessionTitle(sessionId, newTitle) {
   const itemBtn = document.querySelector(`.sidebar-item[data-session-id="${sessionId}"]`);
@@ -48,18 +53,26 @@ export function adjustTextareaHeight(chatInput, chatBox) {
   chatInput.style.overflowY = nextHeight >= maxHeight ? 'auto' : 'hidden';
 }
 
+// 위젯 인스턴스 추적용 (id-기반 API 하위 호환)
+const _liInstances = new Map();
+
 export function showLoadingIndicator(chatHistory) {
-  const loadingId = 'loading-' + Date.now();
-  const html = renderTemplate('loading');
-  const rowDiv = createElementFromHTML(html);
-  rowDiv.id = loadingId;
-  chatHistory.appendChild(rowDiv);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-  return loadingId;
+  const id = 'loading-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  const li = mountLoadingIndicator(chatHistory);
+  li.el.id = id;
+  _liInstances.set(id, li);
+  return id;
 }
 
 export function removeLoadingIndicator(id) {
-  document.getElementById(id)?.remove();
+  const li = _liInstances.get(id);
+  if (li) {
+    li.destroy();
+    _liInstances.delete(id);
+  } else {
+    // fallback: id 로 직접 검색
+    document.getElementById(id)?.remove();
+  }
 }
 
 /**
@@ -68,118 +81,14 @@ export function removeLoadingIndicator(id) {
  * @param {'user'|'bot'|'system'} sender
  * @param {object} [meta] - { senderName, senderId, time, isTeam }
  */
-const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','svg']);
-const VIDEO_EXTS = new Set(['mp4','webm','ogg','mov']);
-
-export function renderFileInMsg(msgDiv, fileUrl, fname) {
-  const ext = (fname.split('.').pop() || '').toLowerCase();
-  if (IMAGE_EXTS.has(ext)) {
-    const img = document.createElement('img');
-    img.src = fileUrl;
-    img.className = 'chat-media-preview';
-    img.alt = fname;
-    img.style.cssText = 'max-width:280px;max-height:220px;border-radius:12px;cursor:pointer;display:block;margin-bottom:4px;';
-    img.addEventListener('click', () => window.open(fileUrl, '_blank'));
-    msgDiv.appendChild(img);
-  } else if (VIDEO_EXTS.has(ext)) {
-    const video = document.createElement('video');
-    video.src = fileUrl;
-    video.controls = true;
-    video.style.cssText = 'max-width:280px;max-height:220px;border-radius:12px;display:block;margin-bottom:4px;';
-    msgDiv.appendChild(video);
-  } else {
-    const wrap = document.createElement('a');
-    wrap.href = fileUrl;
-    wrap.download = fname;
-    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;background:var(--bg-secondary,rgba(0,0,0,.07));text-decoration:none;margin-bottom:4px;max-width:260px;';
-    const icon = document.createElement('span');
-    icon.textContent = '📎';
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = fname;
-    nameSpan.style.cssText = 'color:var(--accent,#6366f1);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-    wrap.appendChild(icon);
-    wrap.appendChild(nameSpan);
-    msgDiv.appendChild(wrap);
-  }
-}
+// renderFileInMsg / appendMessage / _formatMessageTime → widgets/chat-message/
+export const renderFileInMsg = _renderFileInMsg;
 
 export function appendMessage(chatHistory, text, sender, meta = {}) {
-  const {
-    senderName = '', senderId = '', time = '', isTeam = false,
-    mediaFile = null, msgType = null, files = [], sessionId = '',
-  } = meta;
-
-  const isFileMsg = msgType === 'file' || mediaFile != null;
-
-  let processedText = text;
-  if (sender === 'bot' && text && !isFileMsg && typeof marked !== 'undefined') {
-    processedText = marked.parse(text);
-  }
-
-  const avatarChar = senderName
-    ? senderName.charAt(0).toUpperCase()
-    : (sender === 'user' ? 'U' : 'B');
-
-  const displayTime = time
-    ? _formatMessageTime(time)
-    : _formatMessageTime(new Date().toISOString());
-
-  const html = renderTemplate('message', {
-    sender,
-    text: isFileMsg ? '' : processedText,
-    senderId,
-    senderName: isTeam ? senderName : '',
-    avatarChar: isTeam ? avatarChar : '',
-    time: displayTime,
-  }, Icons);
-
-  const rowDiv = createElementFromHTML(html);
-  const msgDiv = rowDiv.querySelector('.message');
-  const copyBtn = rowDiv.querySelector('.copy-btn');
-
-  if (!isTeam) {
-    const avatar = rowDiv.querySelector('.message-avatar');
-    const nameEl = rowDiv.querySelector('.message-sender-name');
-    if (avatar) avatar.style.display = 'none';
-    if (nameEl) nameEl.style.display = 'none';
-  }
-
-  // 파일 메시지 렌더링 (발신: blob URL / 수신: /uploads/ 경로)
-  if (mediaFile) {
-    const url = URL.createObjectURL(mediaFile);
-    renderFileInMsg(msgDiv, url, mediaFile.name);
-  } else if (msgType === 'file' && files.length > 0) {
-    for (const fname of files) {
-      const fileUrl = `/uploads/${sessionId}/${senderId}/${fname}`;
-      renderFileInMsg(msgDiv, fileUrl, fname);
-    }
-  } else if (!(sender === 'bot' && text && typeof marked !== 'undefined')) {
-    msgDiv.textContent = text;
-  }
-
-  copyBtn.addEventListener('click', async () => {
-    const currentText = msgDiv.innerText || msgDiv.textContent;
-    try {
-      await navigator.clipboard.writeText(currentText);
-      const originalIcon = copyBtn.innerHTML;
-      copyBtn.innerHTML = Icons.Check;
-      if (copyBtn.querySelector('svg')) copyBtn.querySelector('svg').style.stroke = '#10B981';
-      setTimeout(() => copyBtn.innerHTML = originalIcon, 2000);
-      showToast('메시지가 복사되었습니다.');
-    } catch (err) { console.error(err); }
+  const m = mountChatMessage(chatHistory, {
+    text, sender, meta,
+    onCopySuccess: () => showToast('메시지가 복사되었습니다.'),
   });
-
-  chatHistory.appendChild(rowDiv);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-  return rowDiv;
+  return m.el; // 기존 호출자가 row element 를 받으므로 그대로 반환
 }
 
-function _formatMessageTime(isoOrDate) {
-  try {
-    const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
-    if (isNaN(d.getTime())) return '';
-    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-  } catch {
-    return '';
-  }
-}

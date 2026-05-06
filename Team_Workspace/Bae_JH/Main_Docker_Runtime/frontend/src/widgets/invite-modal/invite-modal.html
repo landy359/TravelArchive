@@ -1,0 +1,19 @@
+<div class="modal-overlay">
+  <div class="modal-content" style="max-width:380px;width:90%;">
+    <div class="modal-header">
+      <h3 style="margin:0;font-size:15px;font-weight:700;">참여자 초대</h3>
+      <button class="modal-close-btn" data-close style="font-size:22px;background:none;border:none;cursor:pointer;color:#9ca3af;line-height:1;">&times;</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <input data-input type="email" placeholder="이메일 입력 후 검색"
+        style="flex:1;padding:7px 10px;border:1px solid var(--border-color,#e2e8f0);border-radius:8px;font-size:13px;background:var(--bg-secondary,#f8fafc);color:var(--text-primary,#222);" autocomplete="off" />
+      <button data-search
+        style="padding:7px 14px;border-radius:8px;background:var(--accent,#2563eb);color:#fff;border:none;cursor:pointer;font-size:13px;white-space:nowrap;">검색</button>
+    </div>
+    <div data-result style="min-height:28px;margin-bottom:8px;font-size:13px;color:var(--text-secondary,#888);"></div>
+    <div data-staging-label style="font-size:12px;color:var(--text-secondary,#888);margin-bottom:4px;display:none;">초대 목록</div>
+    <div data-staging-list style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px;"></div>
+    <button data-send disabled
+      style="width:100%;padding:9px;border-radius:8px;background:var(--accent,#2563eb);color:#fff;border:none;cursor:pointer;font-size:14px;font-weight:600;opacity:0.45;">초대 보내기</button>
+  </div>
+</div>

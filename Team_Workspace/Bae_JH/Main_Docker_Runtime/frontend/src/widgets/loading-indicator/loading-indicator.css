@@ -1,0 +1,25 @@
+/* ═══════════════════════════════════════════════════════════════
+   loading-indicator.css  —  봇 응답 대기 인디케이터 (말줄임표 물결)
+   ═══════════════════════════════════════════════════════════════ */
+
+.loading-dots {
+  display: flex;
+  gap: var(--space-1, 4px);
+  padding: var(--space-2, 8px) var(--space-1, 4px);
+}
+
+.loading-dots span {
+  width: 6px;
+  height: 6px;
+  background-color: rgba(17, 24, 39, 0.5);
+  border-radius: var(--radius-full, 50%);
+  animation: li-bounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes li-bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40%           { transform: scale(1); }
+}

@@ -12,6 +12,7 @@ import { ScheduleManager } from './js/schedule.js';
 import { router } from './js/router.js';
 import { ThemeManager } from './js/theme.js';
 import { initRightSidebarMarkerPanel } from './js/rightSidebarMarkerPanel.js';
+import { mount as mountSessionInfoModal } from './widgets/session-info-modal/index.js';
 import { initMapInfoResizer } from './js/mapHeightResizer.js';
 import { NotificationManager } from './js/notification.js';
 
@@ -431,6 +432,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
           initRightSidebarMarkerPanel({ mapContainerEl });
           initMapInfoResizer({ mapContainerEl, dropdownEl: document.getElementById('rs-marker-dropdown') });
+
+          // 계획 박스 토글 (마커 패널과 동일한 동작 패턴)
+          const planBox    = document.getElementById('rs-plan-box');
+          const planHeader = planBox?.querySelector('[data-plan-header]');
+          const planToggle = planBox?.querySelector('[data-plan-toggle]');
+          if (planBox && planToggle) {
+            const { Icons } = await import('./js/assets.js');
+            planToggle.innerHTML = Icons.Chevron;
+            const togglePlan = () => {
+              const open = planBox.classList.toggle('rs-open');
+              planToggle.classList.toggle('rs-chevron-rotated', open);
+            };
+            planHeader.addEventListener('click', e => {
+              if (e.target.closest('.rs-header-btn')) return;
+              togglePlan();
+            });
+            planToggle.addEventListener('click', e => { e.stopPropagation(); togglePlan(); });
+          }
         } catch (e) {
           console.warn('[Map Marker Panel] 초기화 실패:', e);
         }
@@ -714,79 +733,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   async function _showSessionInfoModal(info) {
-    const existing = document.getElementById('session-info-modal');
-    if (existing) existing.remove();
-
-    const modal = document.createElement('div');
-    modal.id = 'session-info-modal';
-    modal.className = 'modal-overlay show';
-
-    const myId = TokenManager.getUserId();
-    const isMaster = (info.participants || []).some(p => p.user_id === myId && p.role === 'master');
-
-    const participants = (info.participants || []).map(p => `
-      <div class="session-info-participant">
-        <div class="session-info-avatar">${(p.nickname || p.user_id || '?').charAt(0).toUpperCase()}</div>
-        <div class="session-info-pname">${p.nickname || p.user_id}${p.role === 'master' ? ' <span class="session-info-master-badge">마스터</span>' : ''}</div>
-      </div>`).join('');
-
-    const tripDot = info.trip_color ? `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${info.trip_color};margin-right:6px;vertical-align:middle;"></span>` : '';
-    const tripDisplay = info.trip_title
-      ? `${tripDot}${info.trip_title}`
-      : '<span style="color:var(--text-secondary,#9ca3af)">기타</span>';
-
-    // 소속 계획 변경 — 마스터만
-    let tripChangeHTML = '';
-    let trips = [];
-    if (isMaster) {
-      try { trips = (await BackendHooks.fetchTripList()).filter(t => !t.is_misc); } catch {}
-      const opts = trips.map(t =>
-        `<option value="${t.trip_id}" ${info.trip_id === t.trip_id ? 'selected' : ''}>${t.title || '이름 없는 여행'}</option>`
-      ).join('');
-      tripChangeHTML = `
-        <div class="session-info-row" style="margin-top:8px;align-items:center;">
-          <span class="session-info-label">계획 변경</span>
-          <select id="sessionTripSelect" style="flex:1;padding:4px 8px;border-radius:6px;border:1px solid var(--border-color,#e2e8f0);background:var(--bg-secondary,#f8fafc);color:var(--text-primary,#222);font-size:13px;">
-            <option value="">기타 (미분류)</option>
-            ${opts}
-          </select>
-          <button id="sessionTripSaveBtn" style="margin-left:6px;padding:4px 10px;border-radius:6px;background:var(--accent,#2563eb);color:#fff;border:none;cursor:pointer;font-size:12px;">저장</button>
-        </div>`;
-    }
-
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:400px;">
-        <div class="modal-header">
-          <h3 style="margin:0;font-size:16px;font-weight:700;">세션 정보</h3>
-          <button class="modal-close-btn" style="font-size:22px;background:none;border:none;cursor:pointer;color:#9ca3af;line-height:1;">&times;</button>
-        </div>
-        <div>
-          <div class="session-info-row"><span class="session-info-label">이름</span><span>${info.title || '-'}</span></div>
-          <div class="session-info-row"><span class="session-info-label">모드</span><span>${(info.participants || []).length > 1 ? '팀 대화' : '개인 플래너'}</span></div>
-          <div class="session-info-row"><span class="session-info-label">여행</span><span>${tripDisplay}</span></div>
-          <div class="session-info-row"><span class="session-info-label">생성일</span><span>${info.created_at ? info.created_at.substring(0, 10) : '-'}</span></div>
-          ${tripChangeHTML}
-          <div class="session-info-section-title" style="margin-top:12px;">참여자 (${(info.participants || []).length}명)</div>
-          <div class="session-info-participants">${participants || '<span style="color:var(--text-secondary,#9ca3af)">없음</span>'}</div>
-        </div>
-      </div>`;
-
-    document.body.appendChild(modal);
-    modal.querySelector('.modal-close-btn').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-
-    if (isMaster) {
-      modal.querySelector('#sessionTripSaveBtn')?.addEventListener('click', async () => {
-        const sel = modal.querySelector('#sessionTripSelect');
-        const newTripId = sel?.value || null;
-        try {
-          await BackendHooks.moveSessionToTrip(state.currentSessionId, newTripId);
-          showToast('소속 계획이 변경되었습니다.');
-          modal.remove();
-          elements._refreshSessions?.();
-        } catch { showToast('변경에 실패했습니다.'); }
-      });
-    }
+    return mountSessionInfoModal({
+      info,
+      myUserId:    TokenManager.getUserId(),
+      fetchTrips:  () => BackendHooks.fetchTripList(),
+      onSaveTrip:  (newTripId) => BackendHooks.moveSessionToTrip(state.currentSessionId, newTripId),
+      onTripSaved: () => elements._refreshSessions?.(),
+      onSaveSuccessToast: showToast,
+      onSaveFailToast:    showToast,
+    });
   }
 
   // Window utilities

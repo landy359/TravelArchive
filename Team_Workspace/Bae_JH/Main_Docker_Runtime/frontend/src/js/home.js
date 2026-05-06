@@ -7,6 +7,7 @@
  */
 
 import { BackendHooks, TokenManager } from './api.js';
+import { renderHTML as renderTripCardHTML } from '../widgets/trip-card/index.js';
 
 /* ── 3D 캐러셀 ──────────────────────────────────────────────────
  *  마우스 드래그 / 휠 / 터치 지원
@@ -194,37 +195,8 @@ function _initCarousel(track) {
   });
 }
 
-const CARD_PALETTE = [
-  { bg: 'rgba(219,234,254,0.72)', accent: '#2563eb', icon: '#3b82f6' },
-  { bg: 'rgba(220,252,231,0.72)', accent: '#16a34a', icon: '#22c55e' },
-  { bg: 'rgba(254,243,199,0.72)', accent: '#d97706', icon: '#f59e0b' },
-  { bg: 'rgba(243,232,255,0.72)', accent: '#7c3aed', icon: '#a78bfa' },
-  { bg: 'rgba(255,228,230,0.72)', accent: '#e11d48', icon: '#fb7185' },
-  { bg: 'rgba(224,242,254,0.72)', accent: '#0284c7', icon: '#38bdf8' },
-];
-
-const MAP_ICON = `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>`;
-
-function _tripCardHTML(trip, idx) {
-  // trip.color가 있으면 해당 색상, 없으면 팔레트 순환
-  const p   = CARD_PALETTE[idx % CARD_PALETTE.length];
-  const bg  = trip.color ? `${trip.color}33` : p.bg;       // hex+20% 알파
-  const acc = trip.color || p.accent;
-  const dateLabel = (trip.start_date || '').slice(0, 7).replace(/-/g, '.');
-
-  return `
-    <div class="trip-card" data-trip-id="${trip.trip_id}"
-         style="--i:${idx}; --card-bg:${bg}; --card-accent:${acc}; --card-icon:${acc}">
-      <button class="trip-card-delete-btn" data-delete-trip-id="${trip.trip_id}" title="여행 삭제">&times;</button>
-      <div class="trip-card-map-icon">${MAP_ICON}</div>
-      <div class="trip-card-title">${trip.title || '이름 없는 여행'}</div>
-      <div class="trip-card-footer">
-        ${trip.destination ? `<span class="trip-card-mode-badge">${trip.destination}</span>` : ''}
-        ${dateLabel ? `<span class="trip-card-date">${dateLabel}</span>` : ''}
-      </div>
-    </div>
-  `;
-}
+// CARD_PALETTE / MAP_ICON / _tripCardHTML 모두 widgets/trip-card 로 이전됨
+const _tripCardHTML = (trip, idx) => renderTripCardHTML(trip, idx);
 
 export const HomeManager = {
 

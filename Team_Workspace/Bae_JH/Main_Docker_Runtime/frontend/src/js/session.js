@@ -6,6 +6,7 @@ import { BackendHooks } from './api.js';
 import { Icons } from './assets.js';
 import { renderTemplate, createElementFromHTML } from './utils.js';
 import { updateSidebarSessionTitle, showToast } from './ui.js';
+import { mount as mountInviteModal } from '../widgets/invite-modal/index.js';
 
 const TEAM_COLOR     = '#2a9d5c';
 const PERSONAL_COLOR = '#f97316';
@@ -148,108 +149,12 @@ export const SessionManager = {
     inviteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       dropdownMenu.classList.remove('show');
-
-      // 초대 모달 — 이메일 검색 + 스테이징 목록 + 일괄 초대
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:380px;width:90%;">
-          <div class="modal-header">
-            <h3 style="margin:0;font-size:15px;font-weight:700;">참여자 초대</h3>
-            <button class="modal-close-btn" style="font-size:22px;background:none;border:none;cursor:pointer;color:#9ca3af;line-height:1;">&times;</button>
-          </div>
-          <div style="display:flex;gap:6px;margin-bottom:10px;">
-            <input id="inviteEmailInput" type="email" placeholder="이메일 입력 후 검색"
-              style="flex:1;padding:7px 10px;border:1px solid var(--border-color,#e2e8f0);border-radius:8px;font-size:13px;background:var(--bg-secondary,#f8fafc);color:var(--text-primary,#222);" autocomplete="off" />
-            <button id="inviteSearchBtn"
-              style="padding:7px 14px;border-radius:8px;background:var(--accent,#2563eb);color:#fff;border:none;cursor:pointer;font-size:13px;white-space:nowrap;">검색</button>
-          </div>
-          <div id="inviteSearchResult" style="min-height:28px;margin-bottom:8px;font-size:13px;color:var(--text-secondary,#888);"></div>
-          <div id="inviteStagingLabel" style="font-size:12px;color:var(--text-secondary,#888);margin-bottom:4px;display:none;">초대 목록</div>
-          <div id="inviteStagingList" style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px;"></div>
-          <button id="inviteSendBtn" disabled
-            style="width:100%;padding:9px;border-radius:8px;background:var(--accent,#2563eb);color:#fff;border:none;cursor:pointer;font-size:14px;font-weight:600;opacity:0.45;">초대 보내기</button>
-        </div>`;
-      document.body.appendChild(modal);
-      setTimeout(() => modal.classList.add('show'), 10);
-
-      const emailInput   = modal.querySelector('#inviteEmailInput');
-      const searchBtn2   = modal.querySelector('#inviteSearchBtn');
-      const resultDiv    = modal.querySelector('#inviteSearchResult');
-      const stagingLabel = modal.querySelector('#inviteStagingLabel');
-      const stagingList  = modal.querySelector('#inviteStagingList');
-      const sendBtn      = modal.querySelector('#inviteSendBtn');
-
-      const close = () => { modal.classList.remove('show'); setTimeout(() => modal.remove(), 300); };
-      modal.querySelector('.modal-close-btn').addEventListener('click', close);
-      modal.addEventListener('click', ev => { if (ev.target === modal) close(); });
-
-      // 스테이징 목록 관리
-      const staged = new Map(); // user_id → {nickname, email}
-
-      const refreshStaging = () => {
-        stagingList.innerHTML = '';
-        if (staged.size === 0) {
-          stagingLabel.style.display = 'none';
-          sendBtn.disabled = true;
-          sendBtn.style.opacity = '0.45';
-          sendBtn.style.cursor = 'not-allowed';
-          return;
-        }
-        stagingLabel.style.display = '';
-        sendBtn.disabled = false;
-        sendBtn.style.opacity = '1';
-        sendBtn.style.cursor = 'pointer';
-        staged.forEach((u, uid) => {
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;background:var(--bg-secondary,#f1f5f9);';
-          const nameSpan = document.createElement('span');
-          nameSpan.style.cssText = 'font-size:13px;color:var(--text-primary,#222);';
-          nameSpan.textContent = `${u.nickname || uid} (${u.email || ''})`;
-          const removeBtn = document.createElement('button');
-          removeBtn.textContent = '−';
-          removeBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;color:#ef4444;padding:0 4px;line-height:1;';
-          removeBtn.addEventListener('click', () => { staged.delete(uid); refreshStaging(); });
-          row.appendChild(nameSpan);
-          row.appendChild(removeBtn);
-          stagingList.appendChild(row);
-        });
-      };
-
-      const doSearch = async () => {
-        const q = emailInput.value.trim();
-        if (!q) return;
-        resultDiv.textContent = '검색 중...';
-        try {
-          const users = await BackendHooks.searchUsers(q);
-          if (!users.length) { resultDiv.textContent = '해당 이메일로 가입된 사용자가 없습니다.'; return; }
-          const user = users[0];
-          if (staged.has(user.user_id)) { resultDiv.textContent = '이미 목록에 추가된 사용자입니다.'; return; }
-          staged.set(user.user_id, { nickname: user.nickname, email: user.email || q });
-          refreshStaging();
-          resultDiv.textContent = `${user.nickname || user.user_id} 추가됨`;
-          emailInput.value = '';
-        } catch { resultDiv.textContent = '검색에 실패했습니다.'; }
-      };
-
-      searchBtn2.addEventListener('click', doSearch);
-      emailInput.addEventListener('keydown', ev => { if (ev.key === 'Enter') doSearch(); });
-
-      sendBtn.addEventListener('click', async () => {
-        if (!staged.size) return;
-        sendBtn.disabled = true;
-        sendBtn.textContent = '초대 중...';
-        let ok = 0, fail = 0;
-        for (const uid of staged.keys()) {
-          try { await BackendHooks.inviteUserToSession(sessionId, uid); ok++; }
-          catch { fail++; }
-        }
-        if (ok) showToast(`${ok}명 초대 완료${fail ? `, ${fail}명 실패` : ''}`);
-        else showToast('초대에 실패했습니다.');
-        close();
+      mountInviteModal({
+        sessionId,
+        searchUsers:         (q)        => BackendHooks.searchUsers(q),
+        inviteUserToSession: (sid, uid) => BackendHooks.inviteUserToSession(sid, uid),
+        toast: showToast,
       });
-
-      emailInput.focus();
     });
 
     colorChangeBtn.addEventListener('click', (e) => {

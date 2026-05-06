@@ -1,3 +1,7 @@
+/* ── 디자인 토큰 (가장 먼저 로드) ─────────────────────────────── */
+@import url('./assets/tokens.css');
+
+/* ── 기존 자원 ─────────────────────────────────────────────────── */
 @import url('./css/fonts.css');
 @import url('./css/base.css');
 @import url('./css/assets/buttons.css');

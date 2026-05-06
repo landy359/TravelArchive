@@ -13,6 +13,7 @@ import {
 } from './ui.js';
 import { switchView } from './router.js';
 import { SessionManager } from './session.js';
+import { attach as attachMentionDropdown } from '../widgets/mention-dropdown/index.js';
 
 export const ChatManager = {
   async handleSend(state, elements) {
@@ -221,87 +222,17 @@ export const ChatManager = {
   },
 
   setupMentionAutocomplete(state, elements) {
-    const { chatInput } = elements;
-    let _dropdown = null;
-    let _sessionParticipants = [];
-
-    const closeDropdown = () => { _dropdown?.remove(); _dropdown = null; };
-
-    chatInput.addEventListener('input', async () => {
-      const val = chatInput.value;
-      const cursor = chatInput.selectionStart;
-      const textBefore = val.slice(0, cursor);
-      const match = textBefore.match(/@(\S*)$/);
-
-      if (!match) {
-        closeDropdown();
-        return;
-      }
-
-      const query = match[1];
-
-      // 세션 참여자 목록 캐시 (세션 변경 또는 30초 경과 시 재조회)
-      const _now = Date.now();
-      if (
-        state.currentSessionId &&
-        (!_sessionParticipants._sid ||
-         _sessionParticipants._sid !== state.currentSessionId ||
-         (_now - (_sessionParticipants._ts || 0)) > 30000)
-      ) {
+    return attachMentionDropdown(elements.chatInput, {
+      getSessionId:  () => state.currentSessionId,
+      getMyUserId:   () => TokenManager.getUserId(),
+      fetchParticipants: async (sid) => {
         try {
-          const res = await BackendHooks._authFetch(`/api/sessions/${state.currentSessionId}/info`);
-          if (res.ok) {
-            const info = await res.json();
-            _sessionParticipants = info.participants || [];
-            _sessionParticipants._sid = state.currentSessionId;
-            _sessionParticipants._ts = _now;
-          }
-        } catch {}
-      }
-
-      const myId = TokenManager.getUserId();
-      const humanFiltered = _sessionParticipants.filter(p =>
-        p.user_id !== myId &&
-        (p.nickname || p.user_id).toLowerCase().includes(query.toLowerCase())
-      );
-
-      // BOT은 항상 @mention 후보에 포함
-      const botEntry = { user_id: 'bot', nickname: 'BOT' };
-      const botVisible = 'bot'.startsWith(query.toLowerCase()) || query === '';
-      const filtered = botVisible ? [botEntry, ...humanFiltered] : humanFiltered;
-
-      closeDropdown();
-      if (!filtered.length) return;
-
-      _dropdown = document.createElement('div');
-      _dropdown.className = 'mention-dropdown';
-      const rect = chatInput.getBoundingClientRect();
-      _dropdown.style.cssText = `position:fixed;bottom:${window.innerHeight - rect.top + 4}px;left:${rect.left}px;z-index:999;`;
-
-      filtered.slice(0, 6).forEach(p => {
-        const item = document.createElement('div');
-        item.className = 'mention-item';
-        item.textContent = p.nickname || p.user_id;
-        item.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          const nick = p.nickname || p.user_id;
-          const newVal = val.slice(0, cursor - match[0].length) + `@${nick} ` + val.slice(cursor);
-          chatInput.value = newVal;
-          chatInput.focus();
-          closeDropdown();
-        });
-        _dropdown.appendChild(item);
-      });
-
-      document.body.appendChild(_dropdown);
-    });
-
-    chatInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeDropdown();
-    });
-
-    document.addEventListener('click', (e) => {
-      if (e.target !== chatInput) closeDropdown();
+          const res = await BackendHooks._authFetch(`/api/sessions/${sid}/info`);
+          if (!res.ok) return [];
+          const info = await res.json();
+          return info.participants || [];
+        } catch { return []; }
+      },
     });
   }
 };
