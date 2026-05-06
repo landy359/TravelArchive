@@ -11,7 +11,8 @@ import { CalendarManager } from './js/calendar.js';
 import { ScheduleManager } from './js/schedule.js';
 import { router } from './js/router.js';
 import { ThemeManager } from './js/theme.js';
-import { initRightSidebarMarkerPanel } from './js/components/map/map-right-sidebar-marker-panel.js';
+import { initRightSidebarMarkerPanel } from './js/rightSidebarMarkerPanel.js';
+import { initMapInfoResizer } from './js/mapHeightResizer.js';
 import { NotificationManager } from './js/notification.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -424,15 +425,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         NotificationManager.startSSE(state, elements);
       }
 
-      // 마커 정보 패널 초기화 (map iframe과 postMessage 통신)
+      // 마커 정보 패널 초기화 (map iframe과 postMessage 통신) + 지도 높이 리사이저
       const mapContainerEl = document.getElementById('kakaoMapContainer');
       if (mapContainerEl) {
         try {
           initRightSidebarMarkerPanel({ mapContainerEl });
+          initMapInfoResizer({ mapContainerEl, dropdownEl: document.getElementById('rs-marker-dropdown') });
         } catch (e) {
           console.warn('[Map Marker Panel] 초기화 실패:', e);
         }
       }
+
+      // map iframe 의 위치 버튼 → 부모가 geolocation 처리 후 결과 전달
+      window.addEventListener('message', (e) => {
+        if (e.data?.type !== 'REQUEST_GEOLOCATION') return;
+        const iframe = document.querySelector('#kakaoMapContainer iframe');
+        const reply = (msg) => iframe?.contentWindow?.postMessage(msg, '*');
+
+        const ipFallback = () => {
+          fetch('https://ipapi.co/json/')
+            .then(r => r.json())
+            .then(d => {
+              if (d.latitude != null && d.longitude != null) {
+                reply({ type: 'GEOLOCATION_RESULT', lat: d.latitude, lng: d.longitude });
+              } else {
+                reply({ type: 'GEOLOCATION_RESULT', error: 'IP_LOOKUP_FAILED' });
+              }
+            })
+            .catch(() => reply({ type: 'GEOLOCATION_RESULT', error: 'IP_LOOKUP_FAILED' }));
+        };
+
+        if (navigator.geolocation && window.isSecureContext) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => reply({ type: 'GEOLOCATION_RESULT', lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            ()    => ipFallback(),
+            { enableHighAccuracy: true, timeout: 8000 }
+          );
+        } else {
+          ipFallback();
+        }
+      });
 
       router(state, elements);
       applyAuthGate(TokenManager.isLoggedIn());

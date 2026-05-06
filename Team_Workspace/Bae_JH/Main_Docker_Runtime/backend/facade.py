@@ -107,6 +107,9 @@ class MapMarkerAddRequest(BaseModel):
     lng: float
     title: Optional[str] = None
 
+class MapRoutesRequest(BaseModel):
+    marker_ids: List[str]
+
 class MemoRequest(BaseModel):
     memo: str
 
@@ -606,6 +609,17 @@ async def save_map_markers(session_id: str, req: MapMarkersRequest, request: Req
 async def get_map_markers(session_id: str, request: Request,
                            user_id: str = Depends(get_current_user)):
     return await Router.get_map_markers(session_id, user_id, request.app.state.redis)
+
+@app.post("/api/sessions/{session_id}/map/routes")
+async def save_map_routes(session_id: str, req: MapRoutesRequest, request: Request,
+                           user_id: str = Depends(get_current_user)):
+    return await Router.save_map_routes(session_id, req.marker_ids, user_id,
+                                         request.app.state.redis)
+
+@app.get("/api/sessions/{session_id}/map/routes")
+async def get_map_routes(session_id: str, request: Request,
+                          user_id: str = Depends(get_current_user)):
+    return await Router.get_map_routes(session_id, user_id, request.app.state.redis)
 
 
 # ============================================================

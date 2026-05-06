@@ -695,6 +695,19 @@ class Router:
         markers = await SessionCache.get_markers(session_id, redis)
         return {"markers": markers}
 
+    # ── 폴리라인 경로 (Redis: 정점 순서만 저장) ──────────────
+
+    @staticmethod
+    async def save_map_routes(session_id: str, marker_ids: List[str],
+                               user_id: str, redis) -> dict:
+        await SessionCache.save_routes(session_id, marker_ids, redis)
+        return {"success": True}
+
+    @staticmethod
+    async def get_map_routes(session_id: str, user_id: str, redis) -> dict:
+        marker_ids = await SessionCache.get_routes(session_id, redis)
+        return {"marker_ids": marker_ids}
+
     # ── 여행 기간 (Redis) ────────────────────────────────────
 
     @staticmethod

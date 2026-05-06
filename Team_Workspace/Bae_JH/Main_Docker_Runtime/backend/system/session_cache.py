@@ -120,6 +120,31 @@ class SessionCache:
                 pass
         return []
 
+    # ── 폴리라인 경로 (정점 순서) ─────────────────────────────
+
+    @staticmethod
+    async def save_routes(session_id: str, marker_ids: list, redis):
+        await redis.execute({
+            "action": "set",
+            "key":    f"session:{session_id}:routes",
+            "value":  json.dumps(marker_ids, ensure_ascii=False),
+            "ttl":    DATA_TTL,
+        })
+
+    @staticmethod
+    async def get_routes(session_id: str, redis) -> list:
+        result = await redis.execute({
+            "action": "get",
+            "key":    f"session:{session_id}:routes",
+        })
+        val = result.get("value")
+        if val:
+            try:
+                return json.loads(val)
+            except Exception:
+                pass
+        return []
+
     # ── 여행 기간 ─────────────────────────────────────────────
 
     @staticmethod

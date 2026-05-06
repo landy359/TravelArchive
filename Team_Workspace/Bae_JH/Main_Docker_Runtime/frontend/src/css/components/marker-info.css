@@ -1,34 +1,42 @@
 /* ═══════════════════════════════════════════════════════════════
-   marker-info.css  —  우측 사이드바 마커 정보 패널
-   rightSidebarMarkerPanel.js 가 #kakaoMapContainer 바로 아래에 삽입
+   markerInfo.css  —  마커 장소 정보 패널 (mapMarkerInfo.js)
+
+   ✦ #mi-panel 은 #map 의 형제 요소로 DOM 플로우 내에 삽입됩니다.
+     지도를 가리지 않고 지도 아래쪽에서 슬라이드로 펼쳐집니다.
    ═══════════════════════════════════════════════════════════════ */
 
-#rs-mi-panel {
+/* ── 패널 래퍼 – grid trick 으로 높이 애니메이션 ──────────────
+   알 수 없는 높이의 요소를 부드럽게 열고 닫을 때
+   max-height 보다 훨씬 자연스럽게 작동합니다.            ──── */
+#mi-panel {
   display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows .36s cubic-bezier(.22, 1, .36, 1);
+  grid-template-rows: 0fr;           /* 닫힌 상태: 높이 0 */
+  transition: grid-template-rows .36s cubic-bezier(.22,1,.36,1);
   background: rgba(10, 12, 20, 0.97);
-  border-top: 1px solid rgba(255, 255, 255, .07);
+  border-top: 1px solid rgba(255,255,255,.07);
   width: 100%;
-  overflow: hidden;
+  overflow: hidden;                  /* 접힌 높이 바깥 내용 숨김 */
 }
 
-#rs-mi-panel.rs-mi-open {
+/* 열린 상태 */
+#mi-panel.mi-open {
   grid-template-rows: 1fr;
 }
 
-.rs-mi-inner {
+/* ── 내부 래퍼 (overflow:hidden 로 자식 클리핑) ─────────────── */
+.mi-inner {
   overflow: hidden;
-  min-height: 0;
+  min-height: 0;                     /* grid 트릭 필수 */
 }
 
-.rs-mi-card {
+/* ── 카드 본체 ───────────────────────────────────────────────── */
+.mi-card {
   padding: 0;
   background: transparent;
 }
 
 /* ── 헤더 ────────────────────────────────────────────────────── */
-.rs-mi-header {
+.mi-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -36,7 +44,7 @@
   padding: 16px 18px 0;
 }
 
-.rs-mi-title-group {
+.mi-title-group {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -44,7 +52,7 @@
   min-width: 0;
 }
 
-.rs-mi-badge {
+.mi-badge {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .08em;
@@ -54,10 +62,10 @@
   line-height: 1;
 }
 
-.rs-mi-title {
+.mi-title {
   font-size: 14px;
   font-weight: 700;
-  color: rgba(255, 255, 255, .92);
+  color: rgba(255,255,255,.92);
   margin: 0;
   line-height: 1.35;
   white-space: nowrap;
@@ -65,13 +73,14 @@
   text-overflow: ellipsis;
 }
 
-.rs-mi-close {
+/* ── 닫기 버튼 ───────────────────────────────────────────────── */
+.mi-close {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .05);
-  color: rgba(255, 255, 255, .50);
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.50);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -80,46 +89,46 @@
   flex-shrink: 0;
   transition: background .15s, color .15s, transform .12s;
 }
-.rs-mi-close svg { width: 14px; height: 14px; pointer-events: none; }
-.rs-mi-close:hover { background: rgba(255, 255, 255, .10); color: rgba(255, 255, 255, .90); transform: scale(1.08); }
-.rs-mi-close:active { transform: scale(.92); }
+.mi-close svg { width: 14px; height: 14px; pointer-events: none; }
+.mi-close:hover { background: rgba(255,255,255,.10); color: rgba(255,255,255,.90); transform: scale(1.08); }
+.mi-close:active { transform: scale(.92); }
 
 /* ── 바디 ────────────────────────────────────────────────────── */
-.rs-mi-body {
+.mi-body {
   padding: 12px 18px 0;
 }
 
 /* ── 스켈레톤 ────────────────────────────────────────────────── */
-.rs-mi-skeleton {
+.mi-skeleton {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 4px 0 6px;
 }
 
-.rs-mi-sk {
+.mi-sk {
   height: 12px;
   border-radius: 6px;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, .06) 0%,
-    rgba(255, 255, 255, .13) 40%,
-    rgba(255, 255, 255, .06) 100%
+    rgba(255,255,255,.06) 0%,
+    rgba(255,255,255,.13) 40%,
+    rgba(255,255,255,.06) 100%
   );
   background-size: 200% 100%;
-  animation: rs-mi-shimmer 1.4s infinite linear;
+  animation: mi-shimmer 1.4s infinite linear;
 }
-.rs-mi-sk-80 { width: 80%; }
-.rs-mi-sk-60 { width: 60%; }
-.rs-mi-sk-70 { width: 70%; }
+.mi-sk-80 { width: 80%; }
+.mi-sk-60 { width: 60%; }
+.mi-sk-70 { width: 70%; }
 
-@keyframes rs-mi-shimmer {
+@keyframes mi-shimmer {
   0%   { background-position:  200% center; }
   100% { background-position: -200% center; }
 }
 
 /* ── 정보 리스트 ─────────────────────────────────────────────── */
-.rs-mi-list {
+.mi-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -128,20 +137,20 @@
   gap: 0;
 }
 
-.rs-mi-item {
+.mi-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, .05);
+  border-bottom: 1px solid rgba(255,255,255,.05);
 }
-.rs-mi-item:last-child { border-bottom: none; }
+.mi-item:last-child { border-bottom: none; }
 
-.rs-mi-icon {
+.mi-icon {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, .06);
+  background: rgba(255,255,255,.06);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -150,7 +159,7 @@
   line-height: 1;
 }
 
-.rs-mi-text {
+.mi-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -158,49 +167,48 @@
   flex: 1;
 }
 
-.rs-mi-label {
+.mi-label {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, .28);
+  color: rgba(255,255,255,.28);
   line-height: 1;
 }
 
-.rs-mi-value {
+.mi-value {
   font-size: 12.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, .88);
+  color: rgba(255,255,255,.88);
   line-height: 1.4;
   word-break: break-all;
 }
 
-.rs-mi-mono {
+.mi-mono {
   font-family: 'Fira Code', 'Courier New', monospace;
   font-size: 11.5px;
-  color: rgba(96, 165, 250, .90);
+  color: rgba(96,165,250,.90);
 }
 
-
 /* ── 오류 ────────────────────────────────────────────────────── */
-.rs-mi-error {
+.mi-error {
   font-size: 12px;
-  color: rgba(255, 255, 255, .45);
+  color: rgba(255,255,255,.45);
   text-align: center;
   padding: 10px 0 6px;
   margin: 0;
 }
 
 /* ── 푸터 ────────────────────────────────────────────────────── */
-.rs-mi-footer {
+.mi-footer {
   display: flex;
   gap: 8px;
   padding: 12px 18px 18px;
-  border-top: 1px solid rgba(255, 255, 255, .06);
+  border-top: 1px solid rgba(255,255,255,.06);
   margin-top: 10px;
 }
 
-.rs-mi-action {
+.mi-action {
   flex: 1;
   display: flex;
   align-items: center;
@@ -208,30 +216,30 @@
   gap: 5px;
   height: 34px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .05);
-  color: rgba(255, 255, 255, .55);
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.55);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   transition: background .15s, color .15s, border-color .15s, transform .12s;
 }
-.rs-mi-action svg { width: 14px; height: 14px; flex-shrink: 0; }
-.rs-mi-action:hover {
-  background: rgba(255, 255, 255, .09);
-  color: rgba(255, 255, 255, .90);
-  border-color: rgba(255, 255, 255, .14);
+.mi-action svg { width: 14px; height: 14px; flex-shrink: 0; }
+.mi-action:hover {
+  background: rgba(255,255,255,.09);
+  color: rgba(255,255,255,.90);
+  border-color: rgba(255,255,255,.14);
 }
-.rs-mi-action:active { transform: scale(.96); }
+.mi-action:active { transform: scale(.96); }
 
-.rs-mi-action--primary {
-  background: rgba(96, 165, 250, .14);
-  border-color: rgba(96, 165, 250, .35);
+.mi-action--primary {
+  background: rgba(96,165,250,.14);
+  border-color: rgba(96,165,250,.35);
   color: #93c5fd;
 }
-.rs-mi-action--primary:hover {
-  background: rgba(96, 165, 250, .22);
-  border-color: rgba(96, 165, 250, .50);
+.mi-action--primary:hover {
+  background: rgba(96,165,250,.22);
+  border-color: rgba(96,165,250,.50);
   color: #bfdbfe;
 }

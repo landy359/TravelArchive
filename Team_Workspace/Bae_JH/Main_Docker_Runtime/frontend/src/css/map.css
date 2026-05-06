@@ -10,31 +10,3 @@ html, body, #map {
     position: relative;
 }
 
-/* 현위치 버튼 스타일 */
-#location-btn {
-    position: absolute;
-    bottom: 20px;
-    right: 20px;
-    width: 42px;
-    height: 42px;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    cursor: pointer;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    transition: background 0.2s;
-}
-
-#location-btn:hover {
-    background: #f4f4f4;
-}
-
-#location-btn svg {
-    width: 24px;
-    height: 24px;
-    fill: #333;
-}
