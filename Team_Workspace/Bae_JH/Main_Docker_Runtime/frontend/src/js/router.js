@@ -156,15 +156,21 @@ export async function router(state, elements) {
     }
 
     if (state.currentSessionId !== ssid) {
+      // 이전 세션 blur → dirty 위젯 PG flush (fire-and-forget)
+      if (state.currentSessionId) {
+        BackendHooks.blurSession(state.currentSessionId);
+      }
+
       switchView('chat', elements);
       chatHistory.innerHTML = '';
       chatHistory._scrollPagerAttached = false;
       const loadingId = showLoadingIndicator(chatHistory);
       state.currentSessionId = ssid;
 
+      // 새 세션 open → PG→Redis 로드 (캐시 miss 시)
+      BackendHooks.openSession(ssid).catch(() => {});
+
       CalendarManager.loadTripRange(ssid);
-      SidebarManager.initMemoRows(elements);
-      SidebarManager.initScheduleRows(elements);
       BackendHooks.markSessionRead(ssid).catch(() => {});
       SessionManager.clearUnreadDot(ssid);
 
@@ -308,8 +314,6 @@ export async function router(state, elements) {
   }
 
   CalendarManager.loadTripRange(null);
-  SidebarManager.initMemoRows(elements);
-  SidebarManager.initScheduleRows(elements);
 
   if (page.type === 'home') {
     chatHistory.innerHTML = '';

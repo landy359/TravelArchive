@@ -1,6 +1,6 @@
 from typing import Any, Optional
 from module.node.base.base import BaseProcessor
-from backend.system.session_cache import SessionCache
+from backend.memory.cacher import Cacher as SessionCache
 
 
 class MapNode(BaseProcessor):

@@ -207,6 +207,16 @@ export async function shareChat(sessionId) {
   }
 }
 
+export function blurSession(sessionId) {
+  authFetch(`/api/sessions/${sessionId}/blur`, { method: 'POST' }).catch(() => {});
+}
+
+export async function openSession(sessionId) {
+  try {
+    await authFetch(`/api/sessions/${sessionId}/open`, { method: 'POST' });
+  } catch {}
+}
+
 export async function downloadChat(sessionId) {
   try {
     const res = await authFetch(`/api/sessions/${sessionId}/download`);

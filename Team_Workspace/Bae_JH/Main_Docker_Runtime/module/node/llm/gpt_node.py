@@ -89,10 +89,7 @@ class GPTProcessor(BaseProcessor):
             response = await self.llm.ainvoke(messages)
 
         except Exception as e:
-
-            if self.verbose and self.node:
-                print(f"[{self.node.node_id}] LLM error: {e}")
-
+            print(f"[GPTProcessor] LLM 오류 ({self.model}): {type(e).__name__}: {str(e)[:120]}")
             return None
 
         result = response.content

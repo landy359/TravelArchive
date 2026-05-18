@@ -74,8 +74,6 @@ export const eventBus = new EventBus();
 // Common event names used throughout the app
 export const EVENTS = {
   CALENDAR_DATE_SELECTED: 'calendar:dateSelected',
-  MEMO_UPDATED: 'memo:updated',
-  SCHEDULE_UPDATED: 'schedule:updated',
   SIDEBAR_TAB_CHANGED: 'sidebar:tabChanged',
   SIDEBAR_OPENED: 'sidebar:opened',
   SIDEBAR_CLOSED: 'sidebar:closed',

@@ -18,7 +18,6 @@ export * as Chat          from './chat.js';
 export * as Trips         from './trips.js';
 export * as Teams         from './teams.js';
 export * as Markers       from './markers.js';
-export * as Planner       from './planner.js';
 export * as Files         from './files.js';
 export * as Notifications from './notifications.js';
 export * as Users         from './users.js';

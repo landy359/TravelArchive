@@ -15,7 +15,6 @@ import * as Chat          from '../core/api/chat.js';
 import * as Trips         from '../core/api/trips.js';
 import * as Teams         from '../core/api/teams.js';
 import * as Markers       from '../core/api/markers.js';
-import * as Planner       from '../core/api/planner.js';
 import * as Files         from '../core/api/files.js';
 import * as Notifications from '../core/api/notifications.js';
 import * as Users         from '../core/api/users.js';
@@ -49,9 +48,6 @@ export const BackendHooks = {
 
   // Markers
   ...Markers,
-
-  // Planner (memo + schedule)
-  ...Planner,
 
   // Files
   ...Files,

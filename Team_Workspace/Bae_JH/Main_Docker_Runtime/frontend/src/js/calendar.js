@@ -112,10 +112,6 @@ export const CalendarManager = {
     const lastDateOfMonth = new Date(year, month + 1, 0).getDate();
     const lastDateOfPrevMonth = new Date(year, month, 0).getDate();
 
-    const sessionId = getSessionIdFromHash();
-    const indicators = await BackendHooks.fetchMonthDataIndicators(sessionId, year, month + 1);
-    const hasData = (y, m, d) => indicators.includes(`${y}-${m+1}-${d}`);
-
     const createDaySpan = (date, isCurrentMonth, opacity = '1') => {
         const span = document.createElement('span');
         span.textContent = date;
@@ -143,12 +139,6 @@ export const CalendarManager = {
             span.classList.add('range-mid'); // Light Blue
         }
         
-        if (hasData(dYear, dMonth, date)) {
-            const dot = document.createElement('div');
-            dot.className = 'calendar-data-dot';
-            span.appendChild(dot);
-        }
-
         // Left Click: Focus & Edit
         span.onclick = async (e) => {
             e.preventDefault();

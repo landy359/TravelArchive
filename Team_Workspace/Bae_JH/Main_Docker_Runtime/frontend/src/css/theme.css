@@ -1,63 +1,4 @@
 /* ==========================================================
-   WEATHER THEME & EFFECTS (날씨 테마 전용)
-   ========================================================== */
-.weather-layer {
-  position: absolute; 
-  inset: 0; 
-  z-index: 1; 
-  pointer-events: none;
-  opacity: 0; 
-  transition: opacity 0.8s ease; 
-}
-
-body[data-theme="weather"] .weather-layer { opacity: 1; }
-
-body[data-theme="weather"] .bg-light,
-body[data-theme="weather"] .mist,
-body[data-theme="weather"] .bg-gradient {
-  opacity: 0; 
-  pointer-events: none;
-}
-
-body[data-theme="weather"] .main-panel {
-  background: rgba(255, 255, 255, var(--app-glass-opacity, 0.96));
-  backdrop-filter: blur(15px); 
-  -webkit-backdrop-filter: blur(15px);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-.cloud-particle {
-  position: absolute;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 50%;
-  filter: blur(40px);
-  animation: driftCloud linear infinite;
-  pointer-events: none;
-}
-
-.weather-clear {
-  background: radial-gradient(circle at 80% 20%, rgba(255, 240, 200, 0.9) 0%, rgba(135, 206, 235, 0.8) 40%, rgba(70, 130, 180, 0.9) 100%);
-}
-.weather-clear::after {
-  content: ''; position: absolute; top: -10%; right: -10%; width: 50%; height: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, transparent 60%);
-  filter: blur(40px); animation: pulseSun 6s infinite alternate;
-}
-
-.weather-cloudy { background: linear-gradient(180deg, #5b6467 0%, #8b939a 100%); }
-.weather-night { background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364); }
-.weather-rain { background: linear-gradient(180deg, #2a2a35 0%, #101014 100%); }
-
-body[data-theme="weather"].night-mode .hero h1, 
-body[data-theme="weather"].night-mode .hero p,
-body[data-theme="weather"].night-mode .sidebar-title,
-body[data-theme="weather"].rain-mode .hero h1, 
-body[data-theme="weather"].rain-mode .hero p,
-body[data-theme="weather"].rain-mode .sidebar-title { 
-  color: rgba(255,255,255,0.9); 
-}
-
-/* ==========================================================
    THEME STYLES OVERRIDES (정적 테마 오버라이딩)
    ========================================================== */
 body[data-theme="dark"] { background: #111827; color: #f3f4f6; }
@@ -66,12 +7,6 @@ body[data-theme="dark"] .hero h1,
 body[data-theme="dark"] .sidebar-title { color: rgba(255,255,255,0.9); }
 body[data-theme="dark"] .page-section h2 { color: rgba(255,255,255,0.95); }
 body[data-theme="dark"] .page-section p { color: rgba(255,255,255,0.75); }
-
-/* 어두운 테마에서 로고를 흰색으로 자동 전환 */
-body[data-theme="weather"].night-mode .sidebar-logo,
-body[data-theme="weather"].rain-mode .sidebar-logo {
-  background-image: url('/assets/Logo_W.svg');
-}
 
 body[data-theme="green"] { background: #a8d5ba; }
 body[data-theme="green"] .bg-gradient { background: linear-gradient(180deg, #dcf0e3 0%, #a8d5ba 100%); }

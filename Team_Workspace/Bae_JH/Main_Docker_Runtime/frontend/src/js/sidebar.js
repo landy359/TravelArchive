@@ -6,16 +6,12 @@
  * - sidebar-tabs: tab switching
  * - sidebar-resizer: drag-to-resize
  * - sidebar-folding: collapse/expand sections
- * - memo-manager: memo CRUD
- * - schedule-manager: schedule CRUD
  */
 
 import { SidebarBase } from './managers/sidebar-base.js';
 import { SidebarTabs } from './managers/sidebar-tabs.js';
 import { SidebarResizer } from './managers/sidebar-resizer.js';
 import { SidebarFolding } from './managers/sidebar-folding.js';
-import { MemoManager } from './managers/memo-manager.js';
-import { ScheduleManager } from './managers/schedule-manager.js';
 
 /**
  * SidebarManager - Backwards compatible facade
@@ -33,17 +29,10 @@ export const SidebarManager = {
 
   // ======== From SidebarTabs ========
   initTabs: (...args) => SidebarTabs.initTabs(...args),
-  adjustAllMemoHeights: (...args) => SidebarTabs.adjustAllMemoHeights(...args),
 
   // ======== From SidebarResizer ========
   initResizers: (...args) => SidebarResizer.initResizers(...args),
 
   // ======== From SidebarFolding ========
   initFolding: (...args) => SidebarFolding.initFolding(...args),
-
-  // ======== From MemoManager ========
-  initMemoRows: (...args) => MemoManager.initMemoRows(...args),
-
-  // ======== From ScheduleManager ========
-  initScheduleRows: (...args) => ScheduleManager.initScheduleRows(...args),
 };

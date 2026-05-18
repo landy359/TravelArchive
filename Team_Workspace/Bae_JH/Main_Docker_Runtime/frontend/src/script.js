@@ -8,7 +8,6 @@ import { SidebarManager } from './js/sidebar.js';
 import { ChatManager } from './js/chat.js';  // _onNewSession 자동 전송에도 사용
 import { SessionManager } from './js/session.js';
 import { CalendarManager } from './js/calendar.js';
-import { ScheduleManager } from './js/schedule.js';
 import { router } from './js/router.js';
 import { ThemeManager } from './js/theme.js';
 import { initRightSidebarMarkerPanel } from './js/rightSidebarMarkerPanel.js';
@@ -82,14 +81,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     calendarHeaderControls: document.getElementById('calendarHeaderControls'),
     toggleCalendarBtn: document.getElementById('toggleCalendarBtn'),
     calendarContent: document.getElementById('calendarContent'),
-    toggleScheduleBtn: document.getElementById('toggleScheduleBtn'),
-    scheduleContent: document.getElementById('scheduleContent'),
-    addScheduleRowBtn: document.getElementById('addScheduleRowBtn'),
-    removeScheduleRowBtn: document.getElementById('removeScheduleRowBtn'),
-    toggleMemoBtn: document.getElementById('toggleMemoBtn'),
-    memoContent: document.getElementById('memoContent'),
-    addMemoRowBtn: document.getElementById('addMemoRowBtn'),
-    removeMemoRowBtn: document.getElementById('removeMemoRowBtn'),
     rightSidebar: document.getElementById('rightSidebar'),
     rightSidebarContent: document.getElementById('rightSidebarContent'),
     mapToggleBtn: document.getElementById('mapToggleBtn'),
@@ -108,7 +99,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     notifBadge: document.getElementById('notifBadge'),
     themePopup: document.getElementById('themePopup'),
     themeSwatches: document.querySelectorAll('.theme-swatch'),
-    weatherLayer: document.getElementById('weatherLayer'),
     bgPanorama: document.getElementById('bgPanorama'),
     homeDashboard: document.getElementById('homeDashboard'),
     planFilter: document.getElementById('planFilter'),
@@ -456,8 +446,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       await SessionManager.init(elements, state);
       await CalendarManager.init(todayDate);
       await CalendarManager.render(elements.calendarContent);
-      await ScheduleManager.render(elements.scheduleContent);
-
       SidebarManager.initTabs(elements);
       SidebarManager.initResizers(elements, config);
       SidebarManager.initFolding(elements);
@@ -556,7 +544,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.updatePlaceholder();
       // Sidebar transition takes ~300ms
       setTimeout(() => {
-        SidebarManager.adjustAllMemoHeights();
         window.updatePlaceholder();
       }, 310);
     });
@@ -569,7 +556,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     el?.addEventListener('click', () => {
       if (el === elements.sidebarOverlay) SidebarManager.closeSidebar(elements);
       else SidebarManager.closeRightSidebar(elements);
-      setTimeout(() => SidebarManager.adjustAllMemoHeights(), 310);
     });
   });
 
@@ -577,7 +563,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     config.currentLeftWidth = 300;
     elements.sidebar.style.width = '300px';
     await BackendHooks.saveUserSetting('leftSidebarCustomWidth', 300);
-    setTimeout(() => SidebarManager.adjustAllMemoHeights(), 310);
   });
 
   elements.resetRightSidebarBtn?.addEventListener('click', async () => {
@@ -586,7 +571,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     await BackendHooks.saveUserSetting('rightSidebarCustomWidth', 300);
     setTimeout(() => {
       window.kakaoMap?.relayout();
-      SidebarManager.adjustAllMemoHeights();
     }, 310);
   });
 
@@ -842,7 +826,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
     SidebarManager.syncContentState(elements);
-    SidebarManager.adjustAllMemoHeights();
   });
 
   // 스크롤바 자동 숨김: 스크롤 중이거나 hover 시에만 표시, 1.5초 후 사라짐
@@ -850,7 +833,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const SCROLLBAR_HIDE_DELAY = 1500;
   const SCROLLABLE_SELECTORS = [
     '.sidebar-view', '.chat-history', '.page-section',
-    '.memo-inner-scroll', '.schedule-inner-scroll'
   ];
 
   document.addEventListener('scroll', (e) => {
