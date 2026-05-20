@@ -7,7 +7,7 @@ protocol.py
   Core  ↔ Port2  : PC2
   Core  ↔ Port3  : PC3
   Port3 → LLM    : QUST
-  LLM   → Port3  : LLM_Response (PC3 구조와 동일)
+  LLM   → Port3  : PC3 (JSON 파싱 후 직접 반환)
 """
 
 from __future__ import annotations
@@ -351,46 +351,3 @@ class QUST:
         }
 
 
-# ────────────────────────────────────────────────────
-# LLM_Response  (LLM → Port3)
-# PC3 구조와 동일 — to_pc3() 제공
-# ────────────────────────────────────────────────────
-
-@dataclass
-class LLM_Response:
-    USR_ANAL: str = ""
-    SSN_TPC:  str = ""
-    SSN_PCL:  str = ""
-    CC:   str                    = ""
-    T_SL: str                    = ""
-    T_CD: List[str]              = field(default_factory=list)
-    T_MP: List[str]              = field(default_factory=list)
-    T_MK: List[T_MK_Item]       = field(default_factory=list)
-    T_PN: List[List[T_PN_Item]] = field(default_factory=list)
-
-    @classmethod
-    def from_dict(cls, d: dict) -> LLM_Response:
-        return cls(
-            USR_ANAL=d.get("USR_ANAL", ""),
-            SSN_TPC=d.get("SSN_TPC", ""),
-            SSN_PCL=d.get("SSN_PCL", ""),
-            CC=d.get("CC", ""),
-            T_SL=d.get("T_SL", ""),
-            T_CD=d.get("T_CD", []),
-            T_MP=d.get("T_MP", []),
-            T_MK=_mk_from_list(d.get("T_MK", [])),
-            T_PN=_pn_from_list(d.get("T_PN", [])),
-        )
-
-    def to_pc3(self) -> PC3:
-        return PC3(
-            USR_ANAL=self.USR_ANAL,
-            SSN_TPC=self.SSN_TPC,
-            SSN_PCL=self.SSN_PCL,
-            CC=self.CC,
-            T_SL=self.T_SL,
-            T_CD=self.T_CD,
-            T_MP=self.T_MP,
-            T_MK=self.T_MK,
-            T_PN=self.T_PN,
-        )

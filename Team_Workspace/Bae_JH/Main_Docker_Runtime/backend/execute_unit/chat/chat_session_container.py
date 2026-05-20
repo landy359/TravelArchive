@@ -1,28 +1,16 @@
 """
-chat_session_container.py  [domain / chat 카테고리]
+chat_session_container.py
 
-역할:
-  LLM 대화 세션의 상태를 보관하는 컨테이너. ChatService가 메시지 처리마다 생성.
-  - 세션 메타 (topic, name, context, is_manual_title) — Redis 로드·저장
-  - 사용자 개인화 문자열 (personalized_topics)        — Redis에서 읽기
-  - 메시지 버퍼 (past_messages, current_message)       — Redis 로드·저장
-  - LLM 노드 3종: generation_node / topic_node / summary_node
-
-설계 원칙 (Redis-first):
-  매 요청마다 ChatService._get_container()가 새 인스턴스를 생성하고
-  load_from_redis()로 상태 복원. Python 레벨 캐시 없음.
-  상태 변경 → _save_meta() / _save_buffer()로 즉시 Redis 반영.
-  PG 동기화는 blur/logout/idle_sweep 인터럽트가 담당 (chat_flush_service 참조).
-
-임시 세션:
-  load_from_redis()를 호출하지 않으면 _redis=None 유지 →
-  _save_meta·_save_buffer가 no-op → in-memory 전용 동작.
+역할: LLM 대화 세션 상태 보관. ChatService가 요청마다 생성 후 load_from_redis()로 복원.
 
 Redis Keys:
-  session:{id}:meta      → Hash   (topic, name, context, is_manual_title)
-  session:{id}:buf_msgs  → JSON   (past_messages 버퍼)
+  session:{id}:meta      → Hash  (topic, name, context, is_manual_title)
+  session:{id}:buf_msgs  → JSON  (past_messages)
   session:{id}:msg_count → String (total_user_msg_count)
-  user:{id}:profile      → Hash   (personalized_topics 필드)
+  session:{id}:widgets   → JSON  (widget_state)
+  user:{id}:profile      → Hash  (personalized_topics)
+
+임시 세션: load_from_redis() 미호출 시 _redis=None → _save_* no-op → in-memory 전용.
 """
 import json
 from typing import List, Dict, Optional
@@ -31,66 +19,47 @@ from setting.config import (
     LLM_MODEL_GENERATION, GENERATION_PROMPT, GENERATION_API_KEY,
     LLM_MODEL_ABSORB, ABSORB_PROMPT, ABSORB_API_KEY,
 )
-
-from ...kernel.gpt_node import GptNode as TestNode
-
-SESSION_META_TTL = 3600 * 8   # 8시간
-BUF_TTL          = 3600 * 8
+from ...kernel.gpt_node import GptNode
 
 
 class SessionContainer:
-    """
-    Redis-backed 세션 컨테이너.
-    컨테이너 객체는 매 요청마다 새로 생성되고, load_from_redis()로 상태를 복원한다.
-    모든 상태 쓰기는 Redis에만. PG 동기화는 인터럽트(blur/logout/idle_sweep)가 담당.
-    """
 
-    def __init__(self, session_id: str, user_id: str,
-                 max_buffer_size: int = 6, rename_threshold: int = 6):
-        self.session_id = session_id
-        self.user_id    = user_id
-        self.max_buffer_size  = max_buffer_size
-        self.rename_threshold = rename_threshold
+    def __init__(self, session_id: str, user_id: str, max_buffer_size: int = 6):
+        self.session_id  = session_id
+        self.user_id     = user_id
+        self.max_buffer_size = max_buffer_size
 
-        self.generation_node = TestNode(model_name=LLM_MODEL_GENERATION, api_key=GENERATION_API_KEY)
-        self.absorb_node     = TestNode(model_name=LLM_MODEL_ABSORB,     api_key=ABSORB_API_KEY)
+        self._gen_node    = GptNode(model_name=LLM_MODEL_GENERATION, api_key=GENERATION_API_KEY)
+        self._absorb_node = GptNode(model_name=LLM_MODEL_ABSORB,     api_key=ABSORB_API_KEY)
 
-        # 상태 (load_from_redis 후 채워짐)
-        self.personalization_topic: str = ""
-        self.session_topic: str         = "새로운 대화"
-        self.session_name: str          = "새 세션"
-        self.session_context: str       = ""
-        self.is_manual_title: bool      = False
-        self.total_user_msg_count: int  = 0
-        self.past_messages: List[Dict]  = []
-        self.current_message: Optional[Dict] = None
+        self.personalization_topic: str  = ""
+        self.session_topic: str          = "새로운 대화"
+        self.session_name: str           = "새 세션"
+        self.session_context: str        = ""
+        self.is_manual_title: bool       = False
+        self.total_user_msg_count: int   = 0
+        self.past_messages: List[Dict]   = []
+        self.widget_state: Dict          = {"t_sl": "", "t_cd": [], "t_mp": [], "t_mk": [], "t_pn": []}
+        self.last_topic_change: Optional[dict] = None
+        self._redis = None
 
-        self.is_processing: bool = False
-        self.last_topic_change: Optional[dict] = None  # absorb 후 ChatService가 읽고 초기화
-        self._redis = None   # load_from_redis() 호출 후 세팅
-
-    # ──────────────────────────────────────────────────────────
-    # Redis 로드 / 저장
-    # ──────────────────────────────────────────────────────────
+    # ── Redis ──────────────────────────────────────────────────
 
     async def load_from_redis(self, redis) -> None:
-        """모든 상태를 Redis에서 복원. 컨테이너 생성 직후 반드시 호출."""
         from ...memory.cacher import Cacher
         self._redis = redis
-
         meta = await Cacher.get_session_meta(self.session_id, redis)
         if meta:
-            self.session_topic    = meta.get("topic",           "새로운 대화")
-            self.session_name     = meta.get("name",            "새 세션")
-            self.session_context  = meta.get("context",         "")
-            self.is_manual_title  = meta.get("is_manual_title", "false") == "true"
-
+            self.session_topic   = meta.get("topic",           "새로운 대화")
+            self.session_name    = meta.get("name",            "새 세션")
+            self.session_context = meta.get("context",         "")
+            self.is_manual_title = meta.get("is_manual_title", "false") == "true"
         self.personalization_topic = await Cacher.get_personalized_topics(self.user_id, redis)
         self.past_messages         = await Cacher.get_session_buf(self.session_id, redis)
         self.total_user_msg_count  = await Cacher.get_session_msg_count(self.session_id, redis)
+        self.widget_state          = await Cacher.get_session_widgets(self.session_id, redis) or self.widget_state
 
     async def _save_meta(self) -> None:
-        """세션 메타를 Redis에 쓰고 dirty 마킹. 임시 세션(_redis=None)은 스킵."""
         if not self._redis:
             return
         from ...memory.cacher import Cacher
@@ -103,163 +72,119 @@ class SessionContainer:
         await Cacher.mark_dirty_widget(self.session_id, "meta", self._redis)
 
     async def _save_buffer(self) -> None:
-        """메시지 버퍼와 카운트를 Redis에 저장. 임시 세션(_redis=None)은 스킵."""
         if not self._redis:
             return
         from ...memory.cacher import Cacher
         await Cacher.save_session_buf(self.session_id, self.past_messages, self._redis)
         await Cacher.save_session_msg_count(self.session_id, self.total_user_msg_count, self._redis)
 
-    # ──────────────────────────────────────────────────────────
-    # 게터
-    # ──────────────────────────────────────────────────────────
+    async def _save_widgets(self) -> None:
+        if not self._redis:
+            return
+        from ...memory.cacher import Cacher
+        await Cacher.save_session_widgets(self.session_id, self.widget_state, self._redis)
 
-    def get_session_id(self) -> str:
-        return self.session_id
+    # ── 외부 인터페이스 ─────────────────────────────────────────
 
-    def get_session_name(self) -> str:
-        return self.session_name
+    def router_context(self) -> dict:
+        """Core.run()에 필요한 컨텍스트."""
+        return {
+            "history":       self.past_messages,
+            "session_topic": self.session_topic,
+            "usr_anal":      self.personalization_topic,
+            "widget_state":  self.widget_state,
+        }
 
-    def get_is_processing(self) -> bool:
-        return self.is_processing
-
-    # ──────────────────────────────────────────────────────────
-    # 메인 파이프라인
-    # ──────────────────────────────────────────────────────────
-
-    async def ingest_message(self, text: str) -> bool:
-        """사용자 메시지를 버퍼에 등록."""
-        if self.current_message:
-            self.past_messages.append(self.current_message)
-
-        self.current_message = {"role": "user", "content": text}
-        self.total_user_msg_count += 1
-
+    async def commit_turn(
+        self,
+        user_text: Optional[str] = None,
+        bot_text:  Optional[str] = None,
+        widget_state: Optional[dict] = None,
+    ) -> None:
+        """메시지(유저/봇) 커밋 → 저장 → absorb 판단."""
+        if user_text:
+            self.past_messages.append({"role": "user", "content": user_text})
+            self.total_user_msg_count += 1
+        if bot_text is not None:
+            self.past_messages.append({"role": "bot", "content": bot_text})
+        if widget_state is not None:
+            self.widget_state = widget_state
         await self._save_buffer()
-        return False
-
-    async def generate_bot_response(self, query: str) -> str:
-        """LLM 응답 생성 후 버퍼 저장."""
-        bot_text = await self._node_network_generate(
-            self.personalization_topic,
-            self.session_topic,
-            self.session_context,
-            self.past_messages,
-            self.current_message or {"role": "user", "content": query},
-        )
-
-        if self.current_message:
-            self.past_messages.append(self.current_message)
-        self.current_message = {"role": "bot", "content": bot_text}
-
-        await self._check_and_flush_buffer()
-        return bot_text
+        await self._save_widgets()
+        await self._absorb_if_needed()
 
     async def process_user_input(self, text: str) -> str:
-        """임시 세션 전용: 주제추론 + LLM 응답을 한 번에."""
-        self.is_processing = True
-        try:
-            await self.ingest_message(text)
-            return await self.generate_bot_response(text)
-        except Exception as e:
-            print(f"[{self.session_id}] process_user_input 오류: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-        finally:
-            self.is_processing = False
+        """임시 세션 전용: LLM 응답 생성 후 커밋."""
+        bot_text = await self._generate(text)
+        await self.commit_turn(user_text=text, bot_text=bot_text)
+        return bot_text
 
-    # ──────────────────────────────────────────────────────────
-    # 버퍼 관리
-    # ──────────────────────────────────────────────────────────
+    async def teardown(self) -> None:
+        """세션 종료 시 미커밋 상태 정리."""
+        await self.commit_turn()
+        await self._save_meta()
 
-    async def _check_and_flush_buffer(self) -> None:
-        is_first  = self.total_user_msg_count == 1
-        buf_full  = len(self.past_messages) >= self.max_buffer_size
+    # ── 버퍼 / Absorb ──────────────────────────────────────────
 
+    async def _absorb_if_needed(self) -> None:
+        is_first = self.total_user_msg_count == 1
+        buf_full = len(self.past_messages) >= self.max_buffer_size
         if not is_first and not buf_full:
-            await self._save_buffer()
             return
 
-        print(f"[{self.session_id}] {'첫 메시지 주제 설정.' if is_first else '버퍼 한계 도달. 요약 및 Flush.'}")
-
-        prev_name = self.session_name
-        absorbed = await self._llm_absorb_context(self.session_context, self.past_messages)
+        absorbed = await self._llm_absorb()
         self.session_context = absorbed["context"]
-
         if not self.is_manual_title:
-            self.session_name  = absorbed["name"]
-            self.session_topic = absorbed["name"]
-            if self.session_name != prev_name:
-                self.last_topic_change = {"prev": prev_name, "new": self.session_name}
+            new_name = absorbed["name"]
+            if new_name != self.session_name:
+                self.last_topic_change = {"prev": self.session_name, "new": new_name}
+            self.session_name  = new_name
+            self.session_topic = new_name
 
         if buf_full:
             self.past_messages.clear()
-
         await self._save_meta()
         await self._save_buffer()
 
-    async def teardown(self) -> None:
-        """세션 변경/종료 시 버퍼를 Redis에 최종 저장."""
-        if self.current_message:
-            self.past_messages.append(self.current_message)
-            self.current_message = None
+    # ── LLM ────────────────────────────────────────────────────
 
-        await self._check_and_flush_buffer()
-        await self._save_meta()
-
-    # ──────────────────────────────────────────────────────────
-    # LLM 연동
-    # ──────────────────────────────────────────────────────────
-
-    async def _node_network_generate(self, p_topic: str, s_topic: str, s_context: str,
-                                      past_msgs: List[dict], current_msg: dict) -> str:
-        past_chat_history = ""
-        if past_msgs:
-            for msg in past_msgs:
-                role_kr = "사용자" if msg["role"] == "user" else "AI"
-                past_chat_history += f"{role_kr}: {msg['content']}\n"
-        else:
-            past_chat_history = "최근 대화 내역 없음"
-
-        prompt = GENERATION_PROMPT.format(
-            p_topic=p_topic,
-            s_topic=s_topic,
-            s_context=s_context,
-            past_chat_history=past_chat_history,
-            current_msg_content=current_msg["content"],
+    @staticmethod
+    def _format_history(msgs: List[dict]) -> str:
+        if not msgs:
+            return "최근 대화 내역 없음"
+        return "".join(
+            f"{'사용자' if m['role'] == 'user' else 'AI'}: {m['content']}\n"
+            for m in msgs
         )
-        result = await self.generation_node.ask(prompt)
+
+    async def _generate(self, text: str) -> str:
+        """임시 세션 전용 LLM 응답 생성."""
+        prompt = GENERATION_PROMPT.format(
+            p_topic=self.personalization_topic,
+            s_topic=self.session_topic,
+            s_context=self.session_context,
+            past_chat_history=self._format_history(self.past_messages),
+            current_msg_content=text,
+        )
+        result = await self._gen_node.ask(prompt)
         if not result or result.startswith("ERROR:"):
-            print(f"[{self.session_id}] LLM 응답 실패: {result}")
-            return "AI 응답을 생성할 수 없습니다. 잠시 후 다시 시도해주세요."
+            result = "AI 응답을 생성할 수 없습니다. 잠시 후 다시 시도해주세요."
         return result
 
-    async def _llm_absorb_context(self, current_context: str, past_msgs: List[dict]) -> dict:
-        """버퍼 풀 시 호출. title + context를 한 번에 추출."""
-        print(f"[{self.session_id}] 버퍼 흡수 LLM 가동.")
-
-        history_text = ""
-        for msg in past_msgs:
-            role_kr = "사용자" if msg["role"] == "user" else "AI"
-            history_text += f"{role_kr}: {msg['content']}\n"
-
+    async def _llm_absorb(self) -> dict:
         prompt = ABSORB_PROMPT.format(
             current_title=self.session_name,
-            current_context=current_context if current_context else "없음",
-            history_text=history_text,
+            current_context=self.session_context or "없음",
+            history_text=self._format_history(self.past_messages),
         )
-
-        fallback = {"name": self.session_name, "context": current_context}
         try:
-            response = await self.absorb_node.ask(prompt)
-            name, context = self.session_name, current_context
-            for line in response.strip().splitlines():
+            name, context = self.session_name, self.session_context
+            for line in (await self._absorb_node.ask(prompt)).strip().splitlines():
                 if line.startswith("title:"):
                     name = line[len("title:"):].strip()
                 elif line.startswith("context:"):
                     context = line[len("context:"):].strip()
             return {"name": name, "context": context}
         except Exception as e:
-            print(f"[{self.session_id}] 흡수 노드 에러 (기존 값 유지): {e}")
-            return fallback
+            print(f"[{self.session_id}] absorb 실패 (기존 값 유지): {e}")
+            return {"name": self.session_name, "context": self.session_context}

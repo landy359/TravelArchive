@@ -2,7 +2,7 @@
 #        페이지 이벤트, 세션 CRUD, 여행·팀 관리, 알림, 설정, SSE.
 from typing import Any, Optional
 
-from .system_notify import NotifyService, _session_sse_queues
+from .system_notify import NotifyService
 from .system_page import PageService
 from .system_team import TeamService
 from .system_trip import TripService
@@ -30,8 +30,8 @@ class SystemUnit:
         return await PageService.get_context(user_id, redis)
 
     @staticmethod
-    async def get_settings(redis: Any, user_id: str) -> dict[str, Any]:
-        return await PageService.get_settings(user_id, redis)
+    async def get_settings(redis: Any, user_id: str, manager: Any) -> dict[str, Any]:
+        return await PageService.get_settings(user_id, redis, manager)
 
     @staticmethod
     async def update_settings(user_id: str, settings: dict[str, Any], redis: Any) -> dict[str, str]:
@@ -51,9 +51,9 @@ class SystemUnit:
         return await ChatService.get_session_list(trip_id, user_id, redis, manager)
 
     @staticmethod
-    async def create_session(first_message: str, mode: Any, user_id: str, trip_id: Optional[str], redis: Any, manager: Any) -> dict[str, Any]:
+    async def create_session(user_id: str, trip_id: Optional[str], redis: Any, manager: Any) -> dict[str, Any]:
         from ..chat.chat_service import ChatService
-        return await ChatService.create_session(first_message, mode, user_id, trip_id, redis, manager)
+        return await ChatService.create_session(user_id, trip_id, redis, manager)
 
     @staticmethod
     async def delete_session(session_id: str, user_id: str, redis: Any, manager: Any) -> dict[str, Any]:
@@ -130,8 +130,8 @@ class SystemUnit:
         return await NotifyService.subscribe_user_notifications(user_id)
 
     @staticmethod
-    async def broadcast_typing(session_id: str, user_id: str) -> dict[str, bool]:
-        return await NotifyService.broadcast_typing(session_id, user_id)
+    def get_active_session_info() -> list:
+        return NotifyService.get_active_session_info()
 
     @staticmethod
     async def get_trip_list(redis: Any, manager: Any, user_id: str) -> dict[str, Any]:

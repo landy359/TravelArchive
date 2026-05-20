@@ -69,7 +69,7 @@ class ChatService:
         return {"sessions": sessions}
 
     @staticmethod
-    async def create_session(first_message: str, mode: Optional[str], user_id: str, trip_id: Optional[str], redis: Any, manager: Any) -> dict[str, Any]:
+    async def create_session(user_id: str, trip_id: Optional[str], redis: Any, manager: Any) -> dict[str, Any]:
         session_id = "session_" + str(uuid.uuid4())[:8]
         title = "새 세션"
         if not trip_id:
@@ -276,20 +276,18 @@ class ChatService:
 
         if not is_team:
             bot_query = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
-            return await ChatService._stream_bot_response(session_id, bot_query, message, user_id, redis, manager)
+            return await ChatService._stream_bot_response(session_id, bot_query, user_id, redis, manager)
 
         bot_match = _re.match(r'^@BOT\s+([\s\S]+)', message, _re.IGNORECASE)
         if bot_match:
-            return await ChatService._stream_bot_response(session_id, bot_match.group(1).strip(), message, user_id, redis, manager)
+            return await ChatService._stream_bot_response(session_id, bot_match.group(1).strip(), user_id, redis, manager)
 
-        _spawn_task(ChatService._run_ingest(session_id, user_id, message, redis))
+        _spawn_task(ChatService._run_ingest(session_id, user_id, message, redis, manager))
 
         async def _ack():
             yield b''
 
         return StreamingResponse(_ack(), media_type="text/plain")
-
-    _handle_team_message = _handle_session_message
 
     @staticmethod
     async def _notify_mentions(session_id: str, user_id: str, sender_name: str, message: str, now: datetime, redis: Any, manager: Any) -> None:
@@ -336,17 +334,16 @@ class ChatService:
                 })
 
     @staticmethod
-    async def _run_ingest(session_id: str, user_id: str, message: str, redis: Any) -> None:
-        """백그라운드: 팀 메시지를 SessionContainer 버퍼에 등록."""
+    async def _run_ingest(session_id: str, user_id: str, message: str, redis: Any, manager: Any) -> None:
         try:
             container = await ChatService._get_container(session_id, user_id, redis)
-            await container.ingest_message(message)
+            await container.commit_turn(user_text=message)
+            await ChatService._apply_title_change(container, session_id, user_id, redis, manager)
         except Exception as e:
             print(f"[ChatService._run_ingest] {session_id} 오류: {e}")
 
     @staticmethod
     async def _sync_title_to_redis_list(session_id: str, new_title: str, redis: Any, manager: Any) -> None:
-        """absorb 자동 제목 변경 시 모든 참여자의 Redis 세션 목록 항목 갱신."""
         try:
             participants = await Cacher.get_session_participants(session_id, redis, manager)
             for p in participants:
@@ -357,75 +354,41 @@ class ChatService:
             print(f"[ChatService._sync_title_to_redis_list] {session_id} 오류: {e}")
 
     @staticmethod
-    async def _stream_bot_response(session_id: str, query: str, full_message: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
-        """ingest(주제추론) → generate(LLM응답) 순서로 처리하고 저장 + SSE 브로드캐스트."""
+    async def _apply_title_change(container: Any, session_id: str, user_id: str, redis: Any, manager: Any) -> None:
+        if not container.last_topic_change:
+            return
+        from ...memory.events import SessionTopicChangedEvent, UpdateSessionRecordEvent
+        await ChatService._sync_title_to_redis_list(session_id, container.session_name, redis, manager)
+        NotifyService.push_to_session(session_id, json.dumps({
+            "type": "title_updated",
+            "session_id": session_id,
+            "title": container.session_name,
+        }, ensure_ascii=False))
+        manager.emit(UpdateSessionRecordEvent(
+            session_id=session_id,
+            data={"title": container.session_name, "topic": container.session_topic},
+        ))
+        manager.emit(SessionTopicChangedEvent(
+            user_id=user_id,
+            session_id=session_id,
+            prev_topic=container.last_topic_change["prev"],
+            new_topic=container.last_topic_change["new"],
+        ))
+        container.last_topic_change = None
+
+    @staticmethod
+    async def _stream_bot_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
 
         async def _stream():
+            bot_text = "죄송합니다, 응답을 생성할 수 없습니다."
             try:
                 container = await ChatService._get_container(session_id, triggering_user_id, redis)
-                title_changed = await container.ingest_message(query)
-                if title_changed:
-                    await ChatService._sync_title_to_redis_list(session_id, container.session_name, redis, manager)
-                    NotifyService.push_to_session(session_id, json.dumps({
-                        "type": "title_updated",
-                        "session_id": session_id,
-                        "title": container.session_name,
-                    }, ensure_ascii=False))
                 from ...router.core import Core
-                from ...router.port1 import Port1
-                from ...router.port2 import Port2
-                from ...router.port3 import Port3
-                from ..widget.widget_trip_select import TripSelectWidget
-                from ..widget.widget_trip_clander import TripClanderWidget
-                from ..widget.widget_trip_map import TripMapWidget
-                from ..widget.widget_trip_marker import TripMarkerWidget
-                from ..widget.widget_trip_plan import TripPlanWidget
-
-                t_sl = TripSelectWidget()
-                t_cd = TripClanderWidget()
-                t_mp = TripMapWidget()
-                t_mk = TripMarkerWidget()
-                t_pn = TripPlanWidget()
-
-                p1 = Port1(container, container.personalization_topic)
-                p2 = Port2(None, container, t_sl, t_cd, t_mp, t_mk, t_pn)
-                p3 = Port3(None)
-                core = Core(p1, p2, p3)
-                p2.core = core
-                p3.core = core
-
-                await p2.on_user_message()
-                bot_text = p2.last_response
-
-                # 유저 메시지 + 봇 응답 모두 버퍼에 쌓고 Redis 저장
-                if container.current_message:
-                    container.past_messages.append(container.current_message)
-                container.past_messages.append({"role": "bot", "content": bot_text})
-                container.current_message = None
-                await container._check_and_flush_buffer()
-                if container.last_topic_change:
-                    await ChatService._sync_title_to_redis_list(session_id, container.session_name, redis, manager)
-                    NotifyService.push_to_session(session_id, json.dumps({
-                        "type": "title_updated",
-                        "session_id": session_id,
-                        "title": container.session_name,
-                    }, ensure_ascii=False))
-                    from ...memory.events import SessionTopicChangedEvent, UpdateSessionRecordEvent
-                    # PG 영속화 — 없으면 재로그인 시 "새 세션"으로 되돌아감
-                    manager.emit(UpdateSessionRecordEvent(
-                        session_id=session_id,
-                        data={"title": container.session_name, "topic": container.session_topic},
-                    ))
-                    manager.emit(SessionTopicChangedEvent(
-                        user_id=triggering_user_id,
-                        session_id=session_id,
-                        prev_topic=container.last_topic_change["prev"],
-                        new_topic=container.last_topic_change["new"],
-                    ))
-                    container.last_topic_change = None
+                bot_text, new_widgets = await Core.run(current=query, **container.router_context())
+                await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=new_widgets)
+                await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
             except Exception as e:
                 print(f"[ChatService._stream_bot_response] {session_id} 오류: {e}")
-                bot_text = "죄송합니다, 응답을 생성할 수 없습니다."
 
             bot_now = datetime.now(tz=timezone.utc)
             bot_msg_id = "msg_" + str(uuid.uuid4())[:12]

@@ -68,8 +68,10 @@ class PageService:
     # ── 설정 페이지 ───────────────────────────────────────────
 
     @staticmethod
-    async def get_settings(user_id: str, redis: Any) -> dict:
+    async def get_settings(user_id: str, redis: Any, manager: Any) -> dict:
         """설정 페이지 진입: 프로필·AI스타일·여행취향·UI 전체 반환."""
+        from ...memory.events import CacheMissEvent
+        await manager.emit_and_wait(CacheMissEvent(resource="user_profile", user_id=user_id))
         all_settings = await UserSetting.get_all(user_id, redis)
         return {
             "status":   "success",

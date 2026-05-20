@@ -20,6 +20,27 @@ if TYPE_CHECKING:
 
 class Core:
 
+    @classmethod
+    async def run(cls,
+                  current: str,
+                  history: list,
+                  session_topic: str,
+                  usr_anal: str,
+                  widget_state: dict) -> tuple[str, dict]:
+        """대화 데이터를 받아 (bot_text, updated_widget_state) 반환."""
+        import json
+        from .port1 import Port1
+        from .port2 import Port2
+        from .port3 import Port3
+        p1   = Port1(usr_anal, session_topic, json.dumps(history, ensure_ascii=False))
+        p2   = Port2(None, current, widget_state)
+        p3   = Port3(None)
+        core = cls(p1, p2, p3)
+        p2.core = core
+        p3.core = core
+        await p2.on_user_message()
+        return p2.last_response, p2.updated_widget_state
+
     def __init__(self, p1: "Port1", p2: "Port2", p3: "Port3"):
         self.p1 = p1
         self.p2 = p2

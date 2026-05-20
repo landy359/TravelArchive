@@ -47,5 +47,13 @@ class AuthUnit:
         return await AuthManager.refresh_token(refresh_token, manager)
 
     @staticmethod
+    async def check_admin(user_id: str, manager: Any) -> str:
+        return await AuthManager.check_admin(user_id, manager)
+
+    @staticmethod
+    async def admin_list_users(manager: Any) -> list:
+        return await AuthManager.admin_list_users(manager)
+
+    @staticmethod
     async def get_my_info(user_id: str, redis: Any, manager: Any) -> Any:
         return await AuthManager.get_my_info(user_id, redis, manager)

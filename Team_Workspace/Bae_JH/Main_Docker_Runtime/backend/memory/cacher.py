@@ -317,6 +317,14 @@ class Cacher:
             return 0
 
     @staticmethod
+    async def save_session_widgets(session_id: str, data: dict, redis) -> None:
+        await redis.set_json(f"session:{session_id}:widgets", data, SESSION_TTL)
+
+    @staticmethod
+    async def get_session_widgets(session_id: str, redis) -> dict:
+        return await redis.get_json(f"session:{session_id}:widgets") or {}
+
+    @staticmethod
     async def mark_dirty_widget(session_id: str, widget_type: str, redis) -> None:
         await redis.execute({
             "action": "sadd",

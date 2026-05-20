@@ -3,7 +3,6 @@ facade.py
 TravelArchive 백엔드 진입점 — HTTP 라우팅만. 로직 없음.
 """
 
-import asyncio
 import os
 import sys
 from typing import Dict, List, Optional
@@ -274,7 +273,7 @@ async def save_travel_preferences(req: UserTravelRequest, request: Request, user
 
 @app.delete("/api/user/account")
 async def delete_account(request: Request, user_id: str = Depends(get_current_user)):
-    return await UserUnit.delete_account(user_id, request.app.state.redis)
+    return await UserUnit.delete_account(user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.get("/api/context")
@@ -284,11 +283,7 @@ async def get_app_context(request: Request, user_id: str = Depends(get_optional_
 
 @app.get("/api/settings")
 async def get_settings(request: Request, user_id: str = Depends(get_current_user)):
-    from .memory.events import CacheMissEvent
-    await request.app.state.manager.emit_and_wait(
-        CacheMissEvent(resource="user_profile", user_id=user_id)
-    )
-    return await SystemUnit.get_settings(request.app.state.redis, user_id)
+    return await SystemUnit.get_settings(request.app.state.redis, user_id, request.app.state.manager)
 
 
 @app.post("/api/settings/update")
@@ -349,7 +344,7 @@ async def get_session_list(request: Request, trip_id: Optional[str] = None, plan
 
 @app.post("/api/sessions")
 async def create_session(req: SessionCreateRequest, request: Request, user_id: str = Depends(get_current_user)):
-    return await SystemUnit.create_session(req.first_message, None, user_id, req.trip_id or req.plan_id, request.app.state.redis, request.app.state.manager)
+    return await SystemUnit.create_session(user_id, req.trip_id or req.plan_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -433,11 +428,6 @@ async def mark_session_read(session_id: str, request: Request, user_id: str = De
     return await SystemUnit.mark_session_read(request.app.state.redis, request.app.state.manager, session_id, user_id)
 
 
-@app.post("/api/sessions/{session_id}/typing")
-async def send_typing(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
-    return await SystemUnit.broadcast_typing(session_id, user_id)
-
-
 @app.get("/api/sessions/{session_id}/download")
 async def download_chat(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
     return await SystemUnit.download_chat(session_id, request.app.state.redis, request.app.state.manager)
@@ -519,40 +509,18 @@ async def clear_viewed_notifications(request: Request, user_id: str = Depends(ge
     return await SystemUnit.clear_viewed_notifications(request.app.state.redis, request.app.state.manager, user_id)
 
 
-_ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
-
-
 async def _require_admin(request: Request, user_id: str = Depends(get_current_user)):
-    from fastapi import HTTPException
-    fut = asyncio.get_running_loop().create_future()
-    from .memory.events import AdminCheckEmailEvent
-    request.app.state.manager.emit(AdminCheckEmailEvent(user_id=user_id, future=fut), priority=True)
-    email = await fut
-    if _ADMIN_EMAIL and email == _ADMIN_EMAIL:
-        return user_id
-    raise HTTPException(status_code=403, detail="관리자만 접근 가능합니다")
+    return await AuthUnit.check_admin(user_id, request.app.state.manager)
 
 
 @app.get("/api/admin/users")
 async def admin_get_users(request: Request, user_id: str = Depends(_require_admin)):
-    fut = asyncio.get_running_loop().create_future()
-    from .memory.events import AdminListUsersEvent
-    request.app.state.manager.emit(AdminListUsersEvent(future=fut), priority=True)
-    users = await fut
-    return {"users": users}
+    return {"users": await AuthUnit.admin_list_users(request.app.state.manager)}
 
 
 @app.get("/api/admin/sessions")
 async def admin_get_active_sessions(user_id: str = Depends(_require_admin)):
-    from .execute_unit.system import _session_sse_queues
-
-    return {
-        "active_sessions": [
-            {"session_id": sid, "sse_subscribers": len(qs)}
-            for sid, qs in _session_sse_queues.items()
-            if qs
-        ]
-    }
+    return {"active_sessions": SystemUnit.get_active_session_info()}
 
 
 RESOURCE_DIR = os.path.join(BASE_DIR, "resource")

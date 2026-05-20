@@ -2,7 +2,7 @@
 port3.py
 P3 포트 — 양방향 (Port3 ↔ Core)
 
-임시 구현: PC3 → QUST(sDB/dDB/PPL 비움) → LLM → LLM_Response → PC3
+임시 구현: PC3 → QUST(sDB/dDB/PPL 비움) → LLM → PC3
 sDB / dDB / PPL 은 미구현 유지.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, List
 
-from .protocol import PC3, QUST, sDB_Item, dDB_Item, LLM_Response, _mk_from_list, _pn_from_list
+from .protocol import PC3, QUST, sDB_Item, dDB_Item, _mk_from_list, _pn_from_list
 
 if TYPE_CHECKING:
     from .core import Core

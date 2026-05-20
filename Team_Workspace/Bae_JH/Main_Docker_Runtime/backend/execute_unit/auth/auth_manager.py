@@ -23,11 +23,15 @@ from fastapi.security import OAuth2PasswordBearer
 
 from ...memory.cacher import Cacher
 from ...memory.events import (
+    AdminCheckEmailEvent,
+    AdminListUsersEvent,
     GetMyInfoRequestEvent,
     LogoutAllDevicesEvent,
     LogoutRequestEvent,
     RefreshRequestEvent,
 )
+
+_ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 
 # ── JWT 설정 ──────────────────────────────────────────────────
 ACCESS_TOKEN_SECRET_KEY      = os.getenv("ACCESS_TOKEN_SECRET_KEY", "")
@@ -138,6 +142,22 @@ class AuthManager:
         future = asyncio.get_running_loop().create_future()
         manager.emit(LogoutAllDevicesEvent(user_id=user_id, future=future), priority=True)
         await future
+
+    @staticmethod
+    async def check_admin(user_id: str, manager: Any) -> str:
+        """관리자 확인 후 user_id 반환. 아니면 403."""
+        future = asyncio.get_running_loop().create_future()
+        manager.emit(AdminCheckEmailEvent(user_id=user_id, future=future), priority=True)
+        email = await future
+        if _ADMIN_EMAIL and email == _ADMIN_EMAIL:
+            return user_id
+        raise HTTPException(status_code=403, detail="관리자만 접근 가능합니다")
+
+    @staticmethod
+    async def admin_list_users(manager: Any) -> list:
+        future = asyncio.get_running_loop().create_future()
+        manager.emit(AdminListUsersEvent(future=future), priority=True)
+        return await future
 
     @staticmethod
     async def get_my_info(user_id: str, redis: Any, manager: Any) -> Any:

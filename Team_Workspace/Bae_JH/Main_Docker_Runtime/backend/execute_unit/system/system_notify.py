@@ -144,5 +144,9 @@ class NotifyService:
         await Cacher.clear_viewed_notifications(user_id, redis, manager)
 
     @staticmethod
-    async def broadcast_typing(session_id: str, user_id: str) -> dict:
-        return {"success": True}
+    def get_active_session_info() -> list:
+        return [
+            {"session_id": sid, "sse_subscribers": len(qs)}
+            for sid, qs in _session_sse_queues.items()
+            if qs
+        ]
