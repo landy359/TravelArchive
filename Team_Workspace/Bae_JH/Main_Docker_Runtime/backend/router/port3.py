@@ -2,8 +2,7 @@
 port3.py
 P3 포트 — 양방향 (Port3 ↔ Core)
 
-임시 구현: PC3 → QUST(sDB/dDB/PPL 비움) → LLM → PC3
-sDB / dDB / PPL 은 미구현 유지.
+흐름: PC3 → QUST → sDB.run → dDB.run → (PPL 미구현) → LLM → PC3
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, List
 
-from .protocol import PC3, QUST, sDB_Item, dDB_Item, _mk_from_list, _pn_from_list
+from .protocol import PC3, QUST, _mk_from_list, _pn_from_list
 
 if TYPE_CHECKING:
     from .core import Core
@@ -21,6 +20,12 @@ class Port3:
 
     def __init__(self, core: "Core") -> None:
         self.core = core
+        from ..kernel.db_connector import DBConnector
+        from ..kernel.sdb import SDB
+        from ..kernel.ddb import DDB
+        _connector = DBConnector()
+        self.sdb = SDB(_connector)
+        self.ddb = DDB(_connector)
 
     # ────────────────────────────────────────────────
     # Core ↔ Port3 인터페이스
@@ -41,8 +46,10 @@ class Port3:
             T_MP=pc3.T_MP or [],
             T_MK=pc3.T_MK or [],
             T_PN=pc3.T_PN or [],
-            # sDB / dDB / PPL — 미구현
         )
+        qust = await self.sdb.run(qust)
+        qust = await self.ddb.run(qust)
+        # PPL — 미구현
         return await self._call_llm(qust)
 
     # ────────────────────────────────────────────────
@@ -90,16 +97,6 @@ class Port3:
             T_MK=_mk_from_list(data["T_MK"]) if "T_MK" in data else None,
             T_PN=_pn_from_list(data["T_PN"]) if "T_PN" in data else None,
         )
-
-    # ────────────────────────────────────────────────
-    # 미구현 어댑터
-    # ────────────────────────────────────────────────
-
-    async def _call_sdb(self, query: str) -> List[sDB_Item]:
-        raise NotImplementedError
-
-    async def _call_ddb(self, query: str) -> List[dDB_Item]:
-        raise NotImplementedError
 
     async def _call_ppl(self, query: str) -> str:
         raise NotImplementedError
