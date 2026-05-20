@@ -1,31 +1,9 @@
 # ==============================================================================
-# 1. 사용자 커스텀 설정 및 프로젝트 데이터 (User Custom Settings & Data)
+# 1. nginx 런타임 설정 (전역 — 팀원 폴더 포함 어디서든 커밋 금지)
 # ==============================================================================
-# 사용자가 명시적으로 관리하는 데이터 폴더 및 파일 확장자
-db/data/*
-!db/data/.gitkeep
-
-db/redis_data/*
-!db/redis_data/.gitkeep
-
-uploads/*
-!uploads/.gitkeep
-
-exports/*
-!exports/.gitkeep
-
 default.conf
 nginx.conf
 certified.conf
-
-certbot/**
-**/certbot/**
-
-!certbot/
-!certbot/.gitkeep
-
-!**/certbot/
-!**/certbot/.gitkeep
 
 # ==============================================================================
 # 2. 가상 환경 및 환경 변수 (Virtual Environments & ENV Variables)
