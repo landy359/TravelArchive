@@ -1,43 +1,70 @@
-# [역할] 지도 위젯(마커·경로)과 여행 기간 위젯을 처리하는 실행 단위.
-#        MapNode, TripRangeNode는 Redis에 직접 붙어있는 인메모리 노드 객체이며,
-#        이 실행 단위는 그 노드들을 첫 번째 인자로 받아 위임만 한다.
-#        DB를 모른다. 위젯 데이터는 Redis 전용이며, 세션 blur/flush 시 MemoryManager가 처리한다.
-#
-#        호출 방향: facade → WidgetUnit → MapNode/TripRangeNode → Redis
+# [역할] 위젯 상태 조회·저장 실행 단위.
+#        호출 방향: Facade → WidgetUnit → 각 위젯 매니저(정적) → Redis
 from typing import Any
+
+from .widget_trip_select import TripSelectWidget
+from .widget_trip_clander import TripClanderWidget
+from .widget_trip_map import TripMapWidget
+from .widget_trip_marker import TripMarkerWidget
+from .widget_trip_plan import TripPlanWidget
 
 
 class WidgetUnit:
 
     @staticmethod
-    async def add_marker(map_node: Any, session_id: str, marker_id: str, lat: float, lng: float, title: str) -> Any:
-        return await map_node.add_marker(session_id, marker_id, lat, lng, title)
+    async def get_t_sl(session_id: str, redis: Any) -> str:
+        return await TripSelectWidget.load_from_redis(session_id, redis)
 
     @staticmethod
-    async def delete_marker(map_node: Any, session_id: str, marker_id: str) -> Any:
-        return await map_node.delete_marker(session_id, marker_id)
+    async def set_t_sl(session_id: str, redis: Any, value: str) -> None:
+        await TripSelectWidget.save_to_redis(session_id, redis, value)
 
     @staticmethod
-    async def set_markers(map_node: Any, session_id: str, markers: list) -> Any:
-        return await map_node.set_markers(session_id, markers)
+    async def get_t_cd(session_id: str, redis: Any) -> list:
+        return await TripClanderWidget.load_from_redis(session_id, redis)
 
     @staticmethod
-    async def get_markers(map_node: Any, session_id: str) -> Any:
-        return await map_node.get_markers(session_id)
+    async def set_t_cd(session_id: str, redis: Any, value: list) -> None:
+        await TripClanderWidget.save_to_redis(session_id, redis, value)
 
     @staticmethod
-    async def set_routes(map_node: Any, session_id: str, marker_ids: list) -> Any:
-        return await map_node.set_routes(session_id, marker_ids)
+    async def get_t_mp(session_id: str, redis: Any) -> list:
+        return await TripMapWidget.load_from_redis(session_id, redis)
 
     @staticmethod
-    async def get_routes(map_node: Any, session_id: str) -> Any:
-        return await map_node.get_routes(session_id)
+    async def set_t_mp(session_id: str, redis: Any, value: list) -> None:
+        await TripMapWidget.save_to_redis(session_id, redis, value)
 
     @staticmethod
-    async def set_trip_range(trip_range_node: Any, session_id: str, ranges: list) -> Any:
-        return await trip_range_node.set(session_id, ranges)
+    async def get_markers(session_id: str, redis: Any) -> list:
+        return await TripMarkerWidget.load_from_redis(session_id, redis)
 
     @staticmethod
-    async def get_trip_range(trip_range_node: Any, session_id: str) -> Any:
-        return await trip_range_node.get(session_id)
+    async def set_markers(session_id: str, redis: Any, value: list) -> None:
+        await TripMarkerWidget.save_to_redis(session_id, redis, value)
 
+    @staticmethod
+    async def get_t_pn(session_id: str, redis: Any) -> list:
+        return await TripPlanWidget.load_from_redis(session_id, redis)
+
+    @staticmethod
+    async def set_t_pn(session_id: str, redis: Any, value: list) -> None:
+        await TripPlanWidget.save_to_redis(session_id, redis, value)
+
+    # ── 구버전 호환 (facade 기존 호출명) ──────────────────────────
+
+    @staticmethod
+    async def get_routes(session_id: str, redis: Any) -> list:
+        return await TripMapWidget.load_from_redis(session_id, redis)
+
+    @staticmethod
+    async def set_routes(session_id: str, redis: Any, value: list) -> None:
+        await TripMapWidget.save_to_redis(session_id, redis, value)
+
+    @staticmethod
+    async def get_trip_range(session_id: str, redis: Any) -> list:
+        return await TripClanderWidget.load_from_redis(session_id, redis)
+
+    @staticmethod
+    async def set_trip_range(session_id: str, redis: Any, value: list) -> None:
+        await TripClanderWidget.save_to_redis(session_id, redis, value)

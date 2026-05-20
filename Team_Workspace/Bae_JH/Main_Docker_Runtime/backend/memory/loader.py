@@ -22,15 +22,11 @@ class Loader:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """PostgreSQL + Redis 초기화 → app.state 주입 → 종료 시 정리."""
-        from .adapters import MapNode, PgAdapter, RedisAdapter, TripRangeNode
+        from .adapters import PgAdapter, RedisAdapter
         from .event_handler import EventHandler
 
         pg_adapter = PgAdapter(os.environ["DATABASE_URL"])
         redis_adapter = RedisAdapter(os.environ["REDIS_URL"])
-        map_node = MapNode()
-        trip_range_node = TripRangeNode()
-        map_node.bind_redis(redis_adapter)
-        trip_range_node.bind_redis(redis_adapter)
 
         manager = EventHandler()
         await manager.start(pg_adapter, redis_adapter)
@@ -38,8 +34,6 @@ class Loader:
         app.state.postgres = pg_adapter
         app.state.redis = redis_adapter
         app.state.manager = manager
-        app.state.map_node = map_node
-        app.state.trip_range_node = trip_range_node
 
         print("[Loader] PostgreSQL & Redis 초기화 완료")
         try:

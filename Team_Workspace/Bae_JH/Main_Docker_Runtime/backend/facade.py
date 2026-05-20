@@ -440,47 +440,50 @@ async def upload_files(session_id: str, request: Request, files: List[UploadFile
 
 @app.post("/api/sessions/{session_id}/map/markers/add")
 async def add_map_marker(session_id: str, req: MapMarkerAddRequest, request: Request, user_id: str = Depends(get_current_user)):
-    await WidgetUnit.add_marker(request.app.state.map_node, session_id, req.marker_id, req.lat, req.lng, req.title or "")
+    markers = await WidgetUnit.get_markers(session_id, request.app.state.redis)
+    markers.append({"marker_id": req.marker_id, "lat": req.lat, "lng": req.lng, "title": req.title or ""})
+    await WidgetUnit.set_markers(session_id, request.app.state.redis, markers)
     return {"success": True, "marker_id": req.marker_id}
 
 
 @app.delete("/api/sessions/{session_id}/map/markers/{marker_id}")
 async def delete_map_marker(session_id: str, marker_id: str, request: Request, user_id: str = Depends(get_current_user)):
-    await WidgetUnit.delete_marker(request.app.state.map_node, session_id, marker_id)
+    markers = [m for m in await WidgetUnit.get_markers(session_id, request.app.state.redis) if m.get("marker_id") != marker_id]
+    await WidgetUnit.set_markers(session_id, request.app.state.redis, markers)
     return {"success": True}
 
 
 @app.post("/api/sessions/{session_id}/map/markers")
 async def save_map_markers(session_id: str, req: MapMarkersRequest, request: Request, user_id: str = Depends(get_current_user)):
-    await WidgetUnit.set_markers(request.app.state.map_node, session_id, req.markers)
+    await WidgetUnit.set_markers(session_id, request.app.state.redis, req.markers)
     return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/map/markers")
 async def get_map_markers(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
-    return {"markers": await WidgetUnit.get_markers(request.app.state.map_node, session_id)}
+    return {"markers": await WidgetUnit.get_markers(session_id, request.app.state.redis)}
 
 
 @app.post("/api/sessions/{session_id}/map/routes")
 async def save_map_routes(session_id: str, req: MapRoutesRequest, request: Request, user_id: str = Depends(get_current_user)):
-    await WidgetUnit.set_routes(request.app.state.map_node, session_id, req.marker_ids)
+    await WidgetUnit.set_routes(session_id, request.app.state.redis, req.marker_ids)
     return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/map/routes")
 async def get_map_routes(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
-    return {"marker_ids": await WidgetUnit.get_routes(request.app.state.map_node, session_id)}
+    return {"marker_ids": await WidgetUnit.get_routes(session_id, request.app.state.redis)}
 
 
 @app.put("/api/sessions/{session_id}/trip_range")
 async def save_trip_range(session_id: str, req: TripRangeRequest, request: Request, user_id: str = Depends(get_current_user)):
-    await WidgetUnit.set_trip_range(request.app.state.trip_range_node, session_id, req.ranges)
+    await WidgetUnit.set_trip_range(session_id, request.app.state.redis, req.ranges)
     return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/trip_range")
 async def get_trip_range(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
-    return {"ranges": await WidgetUnit.get_trip_range(request.app.state.trip_range_node, session_id)}
+    return {"ranges": await WidgetUnit.get_trip_range(session_id, request.app.state.redis)}
 
 
 @app.get("/api/notifications")
