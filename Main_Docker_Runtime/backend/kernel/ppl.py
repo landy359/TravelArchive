@@ -1,0 +1,183 @@
+"""
+[역할] Perplexity 검색 노드.
+       QUST를 받아 PPL 필드(순수 문자열)를 채운 뒤 반환한다.
+
+────────────────────────────────────────────────
+입력 (QUST에서 읽는 필드)
+────────────────────────────────────────────────
+  qust.SSN_TPC  : 세션 주제 ("제주도 3박4일 여행" 등)
+  qust.T_CD     : 날짜 범위 ["YYMMDD", ...]
+  qust.CC       : 현재 사용자 메시지
+
+────────────────────────────────────────────────
+출력 (QUST에 채우는 필드)
+────────────────────────────────────────────────
+  qust.PPL : str   — Perplexity가 반환한 경로 후보 텍스트 (plain text)
+────────────────────────────────────────────────
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from typing import TYPE_CHECKING, Optional
+
+from openai import AsyncOpenAI
+
+if TYPE_CHECKING:
+    from ..router.protocol import QUST
+
+
+# llm.py와 동일한 모듈 레벨 캐시 — api_key별로 클라이언트 하나만 유지
+_client_cache: dict[str, AsyncOpenAI] = {}
+
+
+def _get_client(api_key: str) -> AsyncOpenAI:
+    if api_key not in _client_cache:
+        _client_cache[api_key] = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.perplexity.ai",
+        )
+    return _client_cache[api_key]
+
+
+# 실제 여행자들이 비슷한 날씨·장소 조건에서 선택한 경로를 검색하는 프롬프트
+_SYSTEM_PROMPT = """
+You are a travel route research assistant with access to real-time web information.
+
+Task: given a list of places and weather conditions, find what routes real travelers
+commonly take or recommend under similar circumstances.
+
+Output rules:
+- Plain text only
+- No markdown formatting
+- No citation numbers like [1] or [2]
+- No URLs or links
+- List exactly 5 route candidates, numbered 1 to 5
+- Each candidate: route name, key stops in order, one sentence on why travelers choose it
+
+Focus on:
+- Actual traveler behavior (blogs, reviews, community posts) for the region and season
+- How weather conditions affect which routes people prefer
+- Variety across the 5 candidates (e.g. rainy-day indoor heavy vs clear-day outdoor)
+
+Answer in Korean.
+""".strip()
+
+_USER_PREFIX = "다음 장소 목록과 날씨 데이터를 바탕으로 실제 여행자들이 선택하는 경로 후보를 5개 뽑아라."
+
+# _clean에서 사용하는 패턴 — 모듈 로드 시 한 번만 컴파일
+_RE_CITATION  = re.compile(r"\[\d+(?:,\s*\d+)*\]")
+_RE_BOLD      = re.compile(r"\*\*(.*?)\*\*")
+_RE_ITALIC    = re.compile(r"\*(.*?)\*")
+_RE_CODE      = re.compile(r"`(.*?)`")
+_RE_URL       = re.compile(r"https?://\S+")
+_RE_META      = re.compile(
+    r"(?:According to|Search results|Sources indicate|Based on the search results).*?:",
+    re.IGNORECASE,
+)
+_RE_BLANK     = re.compile(r"\n{3,}")
+
+
+class PPL:
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "sonar",
+        temperature: float = 0.3,  # 경로 다양성을 위해 0.2 → 0.3
+    ) -> None:
+        self._api_key = api_key or os.getenv("PERPLEXITY_API_KEY") or ""
+        self._model = model
+        self._temperature = temperature
+
+    def _build_prompt(self, qust: "QUST") -> str:
+        parts = [_USER_PREFIX]
+
+        if qust.SSN_TPC:
+            parts.append(f"여행 주제: {qust.SSN_TPC}")
+
+        if qust.T_CD:
+            parts.append(f"여행 날짜: {', '.join(qust.T_CD)}")
+
+        if qust.CC:
+            parts.append(f"사용자 요청: {qust.CC}")
+
+        # T_MK — 관심 마커 (PC3에서 사용자가 찍은 장소)
+        if qust.T_MK:
+            names = [mk.place_info.name for mk in qust.T_MK if mk.place_info.name]
+            if names:
+                parts.append(f"관심 장소: {', '.join(names)}")
+
+        # T_PN — 기존 일정 (PC3에서 넘어온 일정표)
+        if qust.T_PN:
+            scheduled = [item.place for day in qust.T_PN for item in day if item.place]
+            if scheduled:
+                parts.append(f"기존 일정 장소: {', '.join(scheduled)}")
+
+        # sDB/dDB — 구현 완료 후 자동으로 추가됨
+        if qust.sDB:
+            lines = []
+            for p in qust.sDB:
+                line = p.name
+                if p.main_category:
+                    line += f" ({p.main_category})"
+                if p.region:
+                    line += f" / {p.region}"
+                lines.append(line)
+            parts.append("방문 가능한 장소:\n" + "\n".join(lines))
+
+        if qust.dDB:
+            lines = []
+            for w in qust.dDB:
+                line = f"{w.location} {w.forecast_time}시: {w.summary}"
+                if w.rain_prob:
+                    line += f", 강수확률 {w.rain_prob}%"
+                line += f", 기온 {w.temperature}°C"
+                lines.append(line)
+            parts.append("날씨 조건:\n" + "\n".join(lines))
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _clean(text: str) -> str:
+        if not text:
+            return text
+
+        text = _RE_CITATION.sub("", text)
+        text = _RE_BOLD.sub(r"\1", text)
+        text = _RE_ITALIC.sub(r"\1", text)
+        text = _RE_CODE.sub(r"\1", text)
+        text = _RE_URL.sub("", text)
+        text = _RE_META.sub("", text)
+        text = _RE_BLANK.sub("\n\n", text)
+
+        return text.strip()
+
+    async def run(self, qust: "QUST") -> "QUST":
+        if not self._api_key:
+            raise RuntimeError("PERPLEXITY_API_KEY not set")
+
+        client = _get_client(self._api_key)
+        prompt = self._build_prompt(qust)
+
+        try:
+            response = await client.chat.completions.create(
+                model=self._model,
+                temperature=self._temperature,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+        except Exception:
+            qust.PPL = ""
+            return qust
+
+        if not response or not response.choices:
+            qust.PPL = ""
+            return qust
+
+        content = response.choices[0].message.content or ""
+        qust.PPL = self._clean(content)
+        return qust

@@ -51,7 +51,6 @@ from .events import (
     SearchUsersEvent,
     SessionBlurEvent,
     SessionOpenEvent,
-    SessionTopicChangedEvent,
     SignupEvent,
     SignupRequestEvent,
     UpdateSessionRecordEvent,
@@ -183,7 +182,6 @@ class EventHandler:
             case AcceptInviteEvent(): await self._on_accept_invite(event)
             case DismissNotifEvent(): await self._on_dismiss_notif(event)
             case ClearNotifsEvent(): await self._on_clear_notifs(event)
-            case SessionTopicChangedEvent(): await self._on_session_topic_changed(event)
             case LoadUserSessionTopicsEvent(): await self._on_load_user_session_topics(event)
             case _: print(f"[EventHandler] 알 수 없는 이벤트: {type(event)}")
 
@@ -192,8 +190,7 @@ class EventHandler:
 
     async def _on_logout(self, e: LogoutEvent) -> None:
         await Loader.flush_user_data(e.user_id, self._pg, self._redis)
-        from ..execute_unit.chat.chat_flush_service import FlushService
-        await FlushService.flush_user_sessions(e.user_id, self._redis, self)
+        await Loader.flush_user_sessions(e.user_id, self._pg, self._redis)
         await Cacher.delete_user_data(e.user_id, self._redis)
 
     async def _on_logout_all_devices(self, e: LogoutAllDevicesEvent) -> None:
@@ -210,14 +207,14 @@ class EventHandler:
         try:
             async with asyncio.timeout(5.0):
                 await Loader.flush_user_data(e.user_id, self._pg, self._redis, clear=False)
-                from ..execute_unit.chat.chat_flush_service import FlushService
-                await FlushService.flush_user_sessions(e.user_id, self._redis, self)
+                await Loader.flush_user_sessions(e.user_id, self._pg, self._redis)
         except TimeoutError:
             print(f"[EventHandler] beforeunload flush 타임아웃: {e.user_id}")
 
     async def _on_session_open(self, e: SessionOpenEvent) -> None:
         if not await Cacher.get_session_meta(e.session_id, self._redis):
             await Loader.load_session_to_redis(e.session_id, self._pg, self._redis)
+        await Loader.hydrate_messages_to_redis(e.session_id, self._pg, self._redis)
         profile = await Cacher.get_user_profile(e.user_id, self._redis)
         if not profile.get("nickname"):
             await Loader.load_user_to_redis(e.user_id, self._pg, self._redis)
@@ -256,8 +253,7 @@ class EventHandler:
         try:
             if e.user_id:
                 await Loader.flush_user_data(e.user_id, self._pg, self._redis)
-                from ..execute_unit.chat.chat_flush_service import FlushService
-                await FlushService.flush_user_sessions(e.user_id, self._redis, self)
+                await Loader.flush_user_sessions(e.user_id, self._pg, self._redis)
                 await Cacher.delete_user_data(e.user_id, self._redis)
             await Loader.logout(self._pg, self._redis, e.refresh_token)
             e.future.set_result(None)
@@ -312,17 +308,9 @@ class EventHandler:
 
     async def _on_save_settings(self, e: SaveSettingsEvent) -> None:
         try:
-            style  = await Cacher.get_user_style(e.user_id, self._redis)
-            travel = await Cacher.get_user_travel(e.user_id, self._redis)
-            # PG 동기화만 수행, Redis는 유지 (분석 background에서 prev_analysis 필요)
             await Loader.flush_user_data(e.user_id, self._pg, self._redis, clear=False)
-            if style or travel:
-                self._spawn(self._run_user_analyze_settings(e.user_id, style, travel))
         except Exception as ex:
             print(f"[EventHandler] save_settings flush 실패 {e.user_id}: {ex}")
-
-    async def _on_session_topic_changed(self, e: SessionTopicChangedEvent) -> None:
-        self._spawn(self._run_user_analyze_topic(e))
 
     async def _on_load_user_session_topics(self, e: LoadUserSessionTopicsEvent) -> None:
         try:
@@ -353,33 +341,6 @@ class EventHandler:
         await asyncio.gather(*tasks, return_exceptions=True)
         self._background_tasks.clear()
 
-    async def _run_user_analyze_topic(self, e: SessionTopicChangedEvent) -> None:
-        try:
-            from ..execute_unit.user.user_analyze import UserAnalyze
-            await UserAnalyze.run_on_topic_change(
-                user_id=e.user_id,
-                session_id=e.session_id,
-                prev_topic=e.prev_topic,
-                new_topic=e.new_topic,
-                redis=self._redis,
-                manager=self,
-            )
-        except Exception as ex:
-            print(f"[EventHandler] user_analyze(topic) 오류: {ex}")
-
-    async def _run_user_analyze_settings(self, user_id: str, style: dict, travel: dict) -> None:
-        try:
-            from ..execute_unit.user.user_analyze import UserAnalyze
-            await UserAnalyze.run_on_settings_change(
-                user_id=user_id,
-                style=style,
-                travel=travel,
-                redis=self._redis,
-                manager=self,
-            )
-        except Exception as ex:
-            print(f"[EventHandler] user_analyze(settings) 오류: {ex}")
-
     async def _on_load_user_profile(self, e: LoadUserProfileEvent) -> None:
         try:
             data = await Loader.fetch_user_profile(e.user_id, self._pg)
@@ -392,7 +353,7 @@ class EventHandler:
     async def _on_load_session_list(self, e: LoadSessionListEvent) -> None:
         try:
             sessions = await Loader.get_session_list(self._pg, e.user_id, e.trip_id)
-            await self._cache_json(f"user:{e.user_id}:sessions:{e.trip_id or 'all'}", sessions, SESSION_TTL)
+            await self._cache_json(f"user:{e.user_id}:sessions:all", sessions, SESSION_TTL)
             e.future.set_result(sessions)
         except Exception as ex:
             e.future.set_exception(ex)
@@ -478,9 +439,14 @@ class EventHandler:
 
     async def _on_save_message(self, e: SaveMessageEvent) -> None:
         try:
-            await Loader.save_conversation_message(self._pg, e.msg_data)
+            pg_data = {k: v for k, v in e.msg_data.items() if k != "sender_name"}
+            await Loader.save_conversation_message(self._pg, pg_data)
         except Exception as ex:
-            print(f"[EventHandler] save_message 실패 {e.session_id}: {ex}")
+            print(f"[EventHandler] save_message 실패 {e.session_id}: {ex!r}")
+            try:
+                await self._redis.delete(f"session:{e.session_id}:messages")
+            except Exception as ex2:
+                print(f"[EventHandler] save_message 실패 후 캐시 무효화 실패 {e.session_id}: {ex2!r}")
 
     async def _on_save_notification(self, e: SaveNotificationEvent) -> None:
         try:
@@ -577,13 +543,20 @@ class EventHandler:
         try:
             result = await Loader.accept_session_invite(self._pg, e.notification_id, e.user_id)
             await self._redis.delete(f"user:{e.user_id}:notifications")
-            # Redis-first: 수락한 세션을 본인 Redis 목록에 명시 add
             session_id = result.get("session_id") if isinstance(result, dict) else None
             if session_id:
+                # 수락자 본인 목록에 세션 add
                 rows = await Loader.get_session_list(self._pg, e.user_id, None)
                 entry = next((s for s in rows if s.get("session_id") == session_id), None)
                 if entry:
                     await Cacher.session_list_add(e.user_id, entry, self._redis)
+                # 기존 참여자들의 캐시된 participant_count 갱신 (팀 전환 색깔 즉시 반영)
+                await self._redis.delete(f"session:{session_id}:participants")
+                new_pc, other_ids = await Loader.get_session_participant_count_and_others(
+                    self._pg, session_id, e.user_id
+                )
+                for other_uid in other_ids:
+                    await Cacher.session_list_update(other_uid, session_id, {"participant_count": new_pc}, self._redis)
             e.future.set_result(result)
         except Exception as ex:
             e.future.set_exception(ex)

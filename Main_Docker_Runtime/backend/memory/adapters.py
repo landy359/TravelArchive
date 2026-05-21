@@ -223,6 +223,22 @@ class RedisAdapter:
         results = await pipe.execute()
         return {k for k, found in zip(keys, results) if found}
 
+    async def rpush_json(self, key: str, value: Any, ttl: int | None = None) -> None:
+        """원자적 리스트 append. save_message 경쟁 조건 방지용."""
+        await self._redis.rpush(key, json.dumps(value, ensure_ascii=False, default=str))
+        if ttl is not None:
+            await self._redis.expire(key, ttl)
+
+    async def lrange_json(self, key: str, start: int = 0, end: int = -1) -> list[Any]:
+        raw = await self._redis.lrange(key, start, end)
+        result = []
+        for item in raw:
+            try:
+                result.append(json.loads(item))
+            except (TypeError, json.JSONDecodeError):
+                result.append(item)
+        return result
+
     async def scan(self, pattern: str) -> list[str]:
         cursor = 0
         keys: list[str] = []

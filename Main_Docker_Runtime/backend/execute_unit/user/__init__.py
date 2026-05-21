@@ -4,10 +4,19 @@
 #
 #        호출 방향: Facade → UserUnit → UserSetting → Cacher(Redis)
 #                                     → EventHandler(SaveSettingsEvent) → Loader → PG
+import asyncio
 from typing import Any, Optional
 
 from .user_setting import UserSetting
 from ...memory.events import AccountDeleteEvent, SaveSettingsEvent
+
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
 class UserUnit:
@@ -30,6 +39,8 @@ class UserUnit:
         await UserSetting.save_style(user_id, data, redis)
         if manager:
             manager.emit(SaveSettingsEvent(user_id=user_id))
+            from .user_analyze import UserAnalyze
+            _spawn(UserAnalyze.run_on_settings_change(user_id, data, {}, redis, manager))
         return {"status": "success"}
 
     @staticmethod
@@ -37,6 +48,8 @@ class UserUnit:
         await UserSetting.save_travel(user_id, data, redis)
         if manager:
             manager.emit(SaveSettingsEvent(user_id=user_id))
+            from .user_analyze import UserAnalyze
+            _spawn(UserAnalyze.run_on_settings_change(user_id, {}, data, redis, manager))
         return {"status": "success"}
 
     @staticmethod

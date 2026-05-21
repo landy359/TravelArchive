@@ -5,7 +5,6 @@ chat_flush_service.py  [domain / chat 카테고리]
   인터럽트 발생 시 Redis 세션 메타를 PostgreSQL로 내리는 플러시 전담 모듈.
   Execute Unit은 PG에 직접 접근하지 않고 Cacher → manager.emit 경로만 사용한다.
 """
-from datetime import datetime, timezone
 from typing import Any
 
 
@@ -25,7 +24,6 @@ class FlushService:
             "topic": meta.get("topic", ""),
             "context_summary": meta.get("context", ""),
             "is_manual_title": meta.get("is_manual_title", "false") == "true",
-            "updated_at": datetime.now(tz=timezone.utc),
         }, redis, manager)
         await Cacher.delete_session_cache(session_id, redis)
 

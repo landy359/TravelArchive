@@ -16,14 +16,14 @@ from urllib.parse import urlencode
 import aiohttp
 from fastapi import HTTPException
 
+from ...jwt_utils import create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_DAYS
 from ...memory.events import KakaoAuthRequestEvent
-from .auth_manager import create_access_token, create_refresh_token
 
 KAKAO_CLIENT_ID = os.getenv("KAKAO_CLIENT_ID", "")
 KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")
 KAKAO_REDIRECT_URI = os.getenv("KAKAO_REDIRECT_URI", "")
 
-_TTL_REFRESH = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")) * 24 * 3600
+_TTL_REFRESH = REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
 
 
 def _check_kakao_config() -> None:
@@ -139,6 +139,11 @@ async def kakao_callback(
         "key": f"auth:refresh:{jti}",
         "value": user_id,
         "ttl": _TTL_REFRESH,
+    })
+    await redis.execute({
+        "action": "sadd",
+        "key": f"user:{user_id}:refresh_jtis",
+        "member": jti,
     })
 
     return {

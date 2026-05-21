@@ -69,20 +69,24 @@ export function switchView(viewName, elements) {
 
 const HISTORY_PAGE = 40;
 
-function _msgRole(msg, myId) {
-  if (msg.sender_id && msg.sender_id === myId) return 'user';
-  if (msg.sender_id) return 'bot';
+function _isBotMsg(msg) {
   const raw = (msg.role || msg.sender_type || '').toLowerCase();
-  if (raw === 'assistant' || raw === 'bot' || raw === 'ai') return 'bot';
-  if (raw === 'user') return 'user';
-  return 'bot';
+  if (raw === 'assistant' || raw === 'bot' || raw === 'ai') return true;
+  if (!msg.sender_id || msg.sender_id === 'bot') return true;
+  return false;
+}
+
+function _msgRole(msg, myId) {
+  if (_isBotMsg(msg)) return 'bot';
+  return msg.sender_id === myId ? 'user' : 'bot';
 }
 
 function _renderMsgs(chatHistory, msgs, myId, isTeam, sessionId) {
   for (const msg of msgs) {
     const role = _msgRole(msg, myId);
+    const isBot = _isBotMsg(msg);
     appendMessage(chatHistory, msg.content, role, {
-      senderName: msg.sender_name || (role === 'bot' ? 'AI' : msg.sender_id || ''),
+      senderName: msg.sender_name || (isBot ? 'AI' : '사용자'),
       senderId:   msg.sender_id || '',
       time:       msg.created_at || '',
       isTeam,
@@ -119,8 +123,9 @@ function _attachScrollPager(chatHistory, ssid, myId, isTeam, state) {
       const tempDiv = document.createElement('div');
       for (const msg of msgs) {
         const role = _msgRole(msg, myId);
+        const isBot = _isBotMsg(msg);
         appendMessage(tempDiv, msg.content, role, {
-          senderName: msg.sender_name || (role === 'bot' ? 'AI' : msg.sender_id || ''),
+          senderName: msg.sender_name || (isBot ? 'AI' : '사용자'),
           senderId:   msg.sender_id || '',
           time:       msg.created_at || '',
           isTeam,
@@ -169,15 +174,13 @@ export async function router(state, elements) {
       const loadingId = showLoadingIndicator(chatHistory);
       state.currentSessionId = ssid;
 
-      // 새 세션 open → PG→Redis 로드 (캐시 miss 시)
-      BackendHooks.openSession(ssid).catch(() => {});
-
       CalendarManager.loadTripRange(ssid);
       BackendHooks.markSessionRead(ssid).catch(() => {});
       SessionManager.clearUnreadDot(ssid);
 
       try {
-        // 히스토리와 세션 정보를 병렬로 조회
+        // PG→Redis hydrate 선행: 부분 캐시 상태로 fetchChatHistory가 일부만 받는 race 방지
+        await BackendHooks.openSession(ssid).catch(() => {});
         const [result, infoRes] = await Promise.all([
           BackendHooks.fetchChatHistory(ssid, HISTORY_PAGE, 0),
           BackendHooks._authFetch(`/api/sessions/${ssid}/info`).then(r => r.ok ? r.json() : null).catch(() => null),
@@ -222,7 +225,7 @@ export async function router(state, elements) {
           if (event.type === 'message') {
             if (event.sender_id !== myId) {
               appendMessage(chatHistory, event.content, 'bot', {
-                senderName: event.sender_name || event.sender_id || '',
+                senderName: event.sender_name || '사용자',
                 senderId:   event.sender_id || '',
                 time:       event.ts || '',
                 isTeam:     true,

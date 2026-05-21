@@ -336,18 +336,17 @@ class Cacher:
 
     @staticmethod
     async def save_message(session_id: str, msg_data: dict, redis, manager: Any = None) -> None:
-        existing = await Cacher.get_messages(session_id, redis)
-        existing.append(msg_data)
-        await redis.set_json(f"session:{session_id}:messages", existing, SESSION_TTL)
+        await redis.rpush_json(f"session:{session_id}:messages", msg_data, SESSION_TTL)
         if manager is not None:
             manager.emit(SaveMessageEvent(session_id=session_id, msg_data=msg_data))
 
     @staticmethod
     async def get_messages(session_id: str, redis, manager: Any = None,
                             limit: int = 40, offset: int = 0) -> list:
-        msgs = await redis.get_json(f"session:{session_id}:messages")
-        if msgs is not None:
-            return msgs[offset:offset + limit] if limit else msgs[offset:]
+        key = f"session:{session_id}:messages"
+        if await redis.exists(key):
+            end = offset + limit - 1 if limit else -1
+            return await redis.lrange_json(key, offset, end)
         if manager is None:
             return []
         fut = _future()

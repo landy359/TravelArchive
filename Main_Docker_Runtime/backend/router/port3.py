@@ -16,16 +16,26 @@ if TYPE_CHECKING:
     from .core import Core
 
 
+_db_connector = None
+
+
+def _get_db_connector():
+    global _db_connector
+    if _db_connector is None:
+        from ..kernel.db_connector import DBConnector
+        _db_connector = DBConnector()
+    return _db_connector
+
+
 class Port3:
 
     def __init__(self, core: "Core") -> None:
         self.core = core
-        from ..kernel.db_connector import DBConnector
         from ..kernel.sdb import SDB
         from ..kernel.ddb import DDB
-        _connector = DBConnector()
-        self.sdb = SDB(_connector)
-        self.ddb = DDB(_connector)
+        connector = _get_db_connector()
+        self.sdb = SDB(connector)
+        self.ddb = DDB(connector)
 
     # ────────────────────────────────────────────────
     # Core ↔ Port3 인터페이스

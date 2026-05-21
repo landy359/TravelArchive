@@ -253,18 +253,20 @@ class ChatService:
         now = datetime.now(tz=timezone.utc)
         msg_id = "msg_" + str(uuid.uuid4())[:12]
 
+        profile = await Cacher.get_user_profile(user_id, redis, manager)
+        sender_name = (profile.get("nickname") or "").strip() or "사용자"
+
         await Cacher.save_message(session_id, {
             "message_id": msg_id,
             "session_id": session_id,
             "sender_id": user_id,
+            "sender_name": sender_name,
             "sender_type": "user",
             "message_type": "text",
             "content": message,
             "created_at": now.isoformat(),
         }, redis, manager)
 
-        profile = await Cacher.get_user_profile(user_id, redis, manager)
-        sender_name = profile.get("nickname", user_id)
         participants = await Cacher.get_session_participants(session_id, redis, manager)
         other_ids = [p["user_id"] for p in participants if p.get("user_id") != user_id and p.get("user_id") != "bot"]
         is_team = len(other_ids) > 0
@@ -357,7 +359,8 @@ class ChatService:
     async def _apply_title_change(container: Any, session_id: str, user_id: str, redis: Any, manager: Any) -> None:
         if not container.last_topic_change:
             return
-        from ...memory.events import SessionTopicChangedEvent, UpdateSessionRecordEvent
+        from ...memory.events import UpdateSessionRecordEvent
+        from ..user.user_analyze import UserAnalyze
         await ChatService._sync_title_to_redis_list(session_id, container.session_name, redis, manager)
         NotifyService.push_to_session(session_id, json.dumps({
             "type": "title_updated",
@@ -368,13 +371,17 @@ class ChatService:
             session_id=session_id,
             data={"title": container.session_name, "topic": container.session_topic},
         ))
-        manager.emit(SessionTopicChangedEvent(
+        prev = container.last_topic_change["prev"]
+        new = container.last_topic_change["new"]
+        container.last_topic_change = None
+        _spawn_task(UserAnalyze.run_on_topic_change(
             user_id=user_id,
             session_id=session_id,
-            prev_topic=container.last_topic_change["prev"],
-            new_topic=container.last_topic_change["new"],
+            prev_topic=prev,
+            new_topic=new,
+            redis=redis,
+            manager=manager,
         ))
-        container.last_topic_change = None
 
     @staticmethod
     async def _stream_bot_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
@@ -396,6 +403,7 @@ class ChatService:
                 "message_id": bot_msg_id,
                 "session_id": session_id,
                 "sender_id": None,
+                "sender_name": "AI",
                 "sender_type": "ai",
                 "message_type": "text",
                 "content": bot_text,
@@ -468,7 +476,7 @@ class ChatService:
     @staticmethod
     async def _save_file_message(session_id: str, user_id: str, names: list[str], redis: Any, manager: Any) -> None:
         profile = await Cacher.get_user_profile(user_id, redis, manager)
-        sender_name = profile.get("nickname", user_id)
+        sender_name = (profile.get("nickname") or "").strip() or "사용자"
         now = datetime.now(tz=timezone.utc)
         msg_id = "msg_" + str(uuid.uuid4())[:12]
         content = f"[파일 첨부] {', '.join(names)}"
@@ -477,6 +485,7 @@ class ChatService:
             "message_id": msg_id,
             "session_id": session_id,
             "sender_id": user_id,
+            "sender_name": sender_name,
             "sender_type": "user",
             "message_type": "file",
             "content": content,

@@ -68,6 +68,7 @@ class Core:
     # ────────────────────────────────────────────────
 
     async def _merge_and_execute(self, pc2: PC2) -> None:
+        self._prev_pc2 = pc2   # diff 기준: 현재 위젯 상태로 초기화
         pc1: PC1 = self.p1.request_pc1()
         pc3: PC3 = self._merge(pc1, pc2)
 

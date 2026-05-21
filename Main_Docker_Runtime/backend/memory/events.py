@@ -300,14 +300,6 @@ class AdminListUsersEvent:
 # ── 사용자 분석 이벤트 ──────────────────────────────────────────────
 
 @dataclass
-class SessionTopicChangedEvent:
-    """세션 주제가 absorb로 갱신됐을 때 — UserAnalyze 트리거 (fire-and-forget)."""
-    user_id:     str
-    session_id:  str
-    prev_topic:  str
-    new_topic:   str
-
-@dataclass
 class LoadUserSessionTopicsEvent:
     """UserAnalyze가 PG에서 사용자의 다른 세션 주제 목록을 가져올 때."""
     user_id:            str

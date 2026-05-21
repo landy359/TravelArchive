@@ -13,8 +13,6 @@ from typing import Any, Optional
 import bcrypt
 from fastapi import FastAPI, HTTPException
 
-_TTL_REFRESH = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")) * 24 * 3600
-
 
 class Loader:
 
@@ -138,7 +136,8 @@ class Loader:
 
     @staticmethod
     async def login(postgres: Any, redis: Any, email: str, password: str) -> dict[str, Any]:
-        from ..execute_unit.auth.auth_manager import create_access_token, create_refresh_token
+        from ..jwt_utils import create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_DAYS as _EXP_DAYS
+        _ttl = _EXP_DAYS * 24 * 3600
 
         rows = await postgres.query(
             "SELECT up.user_id, up.nickname, u.user_type FROM user_profile up JOIN users u ON up.user_id = u.user_id WHERE up.email = :email LIMIT 1",
@@ -176,7 +175,12 @@ class Loader:
         await postgres.update("UserSecurity", {"user_id": user_id}, {"last_login_at": now, "login_fail_count": 0})
         access_token = create_access_token(user_id)
         refresh_token, jti = create_refresh_token(user_id)
-        await redis.set_str(f"auth:refresh:{jti}", user_id, _TTL_REFRESH)
+        await redis.set_str(f"auth:refresh:{jti}", user_id, _ttl)
+        await redis.execute({
+            "action": "sadd",
+            "key": f"user:{user_id}:refresh_jtis",
+            "member": jti,
+        })
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -189,7 +193,7 @@ class Loader:
 
     @staticmethod
     async def refresh_token(redis: Any, refresh_token: str) -> dict[str, Any]:
-        from ..execute_unit.auth.auth_manager import create_access_token, verify_refresh_token
+        from ..jwt_utils import create_access_token, verify_refresh_token
 
         payload = verify_refresh_token(refresh_token)
         if not await redis.get_str(f"auth:refresh:{payload['jti']}"):
@@ -199,7 +203,7 @@ class Loader:
     @staticmethod
     async def logout(postgres: Any, redis: Any, refresh_token: str, user_id: Optional[str] = None) -> None:
         """토큰 폐기만. flush는 manager가 선행 처리한다."""
-        from ..execute_unit.auth.auth_manager import verify_refresh_token
+        from ..jwt_utils import verify_refresh_token
 
         try:
             payload = verify_refresh_token(refresh_token)
@@ -500,7 +504,12 @@ class Loader:
     async def get_conversation_history(postgres: Any, session_id: str, limit: int = 40, offset: int = 0) -> list[dict[str, Any]]:
         rows = await postgres.query(
             """SELECT c.sender_id, c.sender_type, c.content, c.created_at,
-                      c.message_type, c.message_id, COALESCE(up.nickname, c.sender_id) AS sender_name
+                      c.message_type, c.message_id,
+                      CASE
+                        WHEN c.sender_type = 'user'
+                          THEN COALESCE(NULLIF(up.nickname, ''), '사용자')
+                        ELSE 'AI'
+                      END AS sender_name
                FROM conversations c LEFT JOIN user_profile up ON up.user_id = c.sender_id
                WHERE c.session_id = :sid ORDER BY c.created_at DESC LIMIT :lim OFFSET :off""",
             {"sid": session_id, "lim": limit, "off": offset},
@@ -681,11 +690,14 @@ class Loader:
     @staticmethod
     async def logout_all_devices(redis: Any, user_id: str) -> None:
         """해당 사용자의 모든 refresh 토큰을 Redis에서 삭제한다."""
-        keys = await redis.scan("auth:refresh:*")
-        for key in keys:
-            val = await redis.get_str(key)
-            if val == user_id:
-                await redis.delete(key)
+        result = await redis.execute({
+            "action": "smembers",
+            "key": f"user:{user_id}:refresh_jtis",
+        })
+        jtis = result.get("data", set())
+        for jti in jtis:
+            await redis.delete(f"auth:refresh:{jti}")
+        await redis.delete(f"user:{user_id}:refresh_jtis")
 
     @staticmethod
     async def mark_session_read(postgres: Any, session_id: str, user_id: str) -> None:
@@ -781,6 +793,67 @@ class Loader:
             }, redis)
 
     @staticmethod
+    async def hydrate_messages_to_redis(session_id: str, postgres: Any, redis: Any, limit: int = 40) -> None:
+        """Redis `session:{sid}:messages` 가 PG 와 불일치하면 PG 기준으로 풀 hydrate.
+        부분 적재 상태에서 새로고침 시 일부 메시지만 노출되는 문제 방지."""
+        from .cacher import SESSION_TTL
+        key = f"session:{session_id}:messages"
+        count_rows = await postgres.query(
+            "SELECT COUNT(*)::int AS c FROM conversations WHERE session_id = :sid",
+            {"sid": session_id},
+        )
+        pg_count = (count_rows or [{}])[0].get("c", 0) or 0
+        if pg_count == 0:
+            return
+        cached_len = 0
+        if await redis.exists(key):
+            cached_len = len(await redis.lrange_json(key, 0, -1))
+        if cached_len >= min(pg_count, limit):
+            return
+        msgs = await Loader.get_conversation_history(postgres, session_id, limit=limit, offset=0)
+        await redis.delete(key)
+        for m in msgs:
+            await redis.rpush_json(key, {
+                "message_id":  m.get("message_id", ""),
+                "session_id":  session_id,
+                "sender_id":   m.get("sender_id") or None,
+                "sender_name": m.get("sender_name", ""),
+                "sender_type": "user" if m.get("role") == "user" else "ai",
+                "message_type": m.get("msg_type") or "text",
+                "content":     m.get("content", ""),
+                "created_at":  m.get("created_at", ""),
+            }, SESSION_TTL)
+
+    @staticmethod
+    async def flush_single_session(session_id: str, postgres: Any, redis: Any) -> None:
+        """단일 세션의 Redis 메타를 PG로 직접 반영하고 Redis 캐시를 삭제한다."""
+        meta_r = await redis.execute({"action": "hgetall", "key": f"session:{session_id}:meta"})
+        meta = meta_r.get("data", {})
+        if not meta:
+            return
+        await Loader.update_session_record(postgres, session_id, {
+            "title": meta.get("name", "새 세션"),
+            "topic": meta.get("topic", ""),
+            "context_summary": meta.get("context", ""),
+            "is_manual_title": meta.get("is_manual_title", "false") == "true",
+        })
+        await redis.delete(f"session:{session_id}:meta")
+
+    @staticmethod
+    async def flush_user_sessions(user_id: str, postgres: Any, redis: Any) -> None:
+        """사용자의 모든 활성 세션을 PG에 직접 플러시하고 Redis 활성 목록을 정리한다."""
+        result = await redis.execute({"action": "smembers", "key": f"user:{user_id}:active_sessions"})
+        session_ids = set(result.get("data", []))
+        for session_id in session_ids:
+            try:
+                await Loader.flush_single_session(session_id, postgres, redis)
+            except Exception as e:
+                print(f"[Loader] 세션 {session_id} 플러시 실패: {e}")
+            await redis.execute({"action": "srem", "key": f"user:{user_id}:active_sessions", "member": session_id})
+        await redis.delete(f"user:{user_id}:current_session")
+        print(f"[Loader] {user_id}: {len(session_ids)}개 세션 플러시 완료")
+
+    @staticmethod
     async def flush_dirty_widgets(session_id: str, postgres: Any, redis: Any) -> None:
         result = await redis.execute({"action": "smembers", "key": f"session:{session_id}:dirty_widgets"})
         dirty = set(result.get("data", []))
@@ -832,6 +905,22 @@ class Loader:
             {"user_id": user_id, "exclude_id": exclude_session_id},
         )
         return [row["topic"] for row in rows]
+
+    @staticmethod
+    async def get_session_participant_count_and_others(
+        postgres: Any, session_id: str, exclude_uid: str
+    ) -> tuple[int, list[str]]:
+        count_rows = await postgres.query(
+            "SELECT COUNT(*)::int - 1 AS c FROM session_participants WHERE session_id = :sid",
+            {"sid": session_id},
+        )
+        new_pc = (count_rows or [{}])[0].get("c", 1) or 1
+        other_rows = await postgres.query(
+            "SELECT user_id FROM session_participants WHERE session_id = :sid AND user_id <> :uid AND user_id <> 'bot'",
+            {"sid": session_id, "uid": exclude_uid},
+        )
+        other_ids = [r.get("user_id") for r in (other_rows or []) if r.get("user_id")]
+        return new_pc, other_ids
 
     @staticmethod
     async def admin_list_users(postgres: Any) -> list[dict]:
