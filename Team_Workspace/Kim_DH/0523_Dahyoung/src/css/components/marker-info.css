@@ -1,0 +1,245 @@
+/* ═══════════════════════════════════════════════════════════════
+   markerInfo.css  —  마커 장소 정보 패널 (mapMarkerInfo.js)
+
+   ✦ #mi-panel 은 #map 의 형제 요소로 DOM 플로우 내에 삽입됩니다.
+     지도를 가리지 않고 지도 아래쪽에서 슬라이드로 펼쳐집니다.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 패널 래퍼 – grid trick 으로 높이 애니메이션 ──────────────
+   알 수 없는 높이의 요소를 부드럽게 열고 닫을 때
+   max-height 보다 훨씬 자연스럽게 작동합니다.            ──── */
+#mi-panel {
+  display: grid;
+  grid-template-rows: 0fr;           /* 닫힌 상태: 높이 0 */
+  transition: grid-template-rows .36s cubic-bezier(.22,1,.36,1);
+  background: rgba(10, 12, 20, 0.97);
+  border-top: 1px solid rgba(255,255,255,.07);
+  width: 100%;
+  overflow: hidden;                  /* 접힌 높이 바깥 내용 숨김 */
+}
+
+/* 열린 상태 */
+#mi-panel.mi-open {
+  grid-template-rows: 1fr;
+}
+
+/* ── 내부 래퍼 (overflow:hidden 로 자식 클리핑) ─────────────── */
+.mi-inner {
+  overflow: hidden;
+  min-height: 0;                     /* grid 트릭 필수 */
+}
+
+/* ── 카드 본체 ───────────────────────────────────────────────── */
+.mi-card {
+  padding: 0;
+  background: transparent;
+}
+
+/* ── 헤더 ────────────────────────────────────────────────────── */
+.mi-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 0;
+}
+
+.mi-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mi-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #60a5fa;
+  opacity: .85;
+  line-height: 1;
+}
+
+.mi-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255,255,255,.92);
+  margin: 0;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 닫기 버튼 ───────────────────────────────────────────────── */
+.mi-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.50);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background .15s, color .15s, transform .12s;
+}
+.mi-close svg { width: 14px; height: 14px; pointer-events: none; }
+.mi-close:hover { background: rgba(255,255,255,.10); color: rgba(255,255,255,.90); transform: scale(1.08); }
+.mi-close:active { transform: scale(.92); }
+
+/* ── 바디 ────────────────────────────────────────────────────── */
+.mi-body {
+  padding: 12px 18px 0;
+}
+
+/* ── 스켈레톤 ────────────────────────────────────────────────── */
+.mi-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+
+.mi-sk {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,.06) 0%,
+    rgba(255,255,255,.13) 40%,
+    rgba(255,255,255,.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: mi-shimmer 1.4s infinite linear;
+}
+.mi-sk-80 { width: 80%; }
+.mi-sk-60 { width: 60%; }
+.mi-sk-70 { width: 70%; }
+
+@keyframes mi-shimmer {
+  0%   { background-position:  200% center; }
+  100% { background-position: -200% center; }
+}
+
+/* ── 정보 리스트 ─────────────────────────────────────────────── */
+.mi-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.mi-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.mi-item:last-child { border-bottom: none; }
+
+.mi-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.mi-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mi-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.28);
+  line-height: 1;
+}
+
+.mi-value {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255,255,255,.88);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.mi-mono {
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 11.5px;
+  color: rgba(96,165,250,.90);
+}
+
+/* ── 오류 ────────────────────────────────────────────────────── */
+.mi-error {
+  font-size: 12px;
+  color: rgba(255,255,255,.45);
+  text-align: center;
+  padding: 10px 0 6px;
+  margin: 0;
+}
+
+/* ── 푸터 ────────────────────────────────────────────────────── */
+.mi-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 18px 18px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  margin-top: 10px;
+}
+
+.mi-action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.55);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s, transform .12s;
+}
+.mi-action svg { width: 14px; height: 14px; flex-shrink: 0; }
+.mi-action:hover {
+  background: rgba(255,255,255,.09);
+  color: rgba(255,255,255,.90);
+  border-color: rgba(255,255,255,.14);
+}
+.mi-action:active { transform: scale(.96); }
+
+.mi-action--primary {
+  background: rgba(96,165,250,.14);
+  border-color: rgba(96,165,250,.35);
+  color: #93c5fd;
+}
+.mi-action--primary:hover {
+  background: rgba(96,165,250,.22);
+  border-color: rgba(96,165,250,.50);
+  color: #bfdbfe;
+}

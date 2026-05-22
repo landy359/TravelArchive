@@ -1,0 +1,211 @@
+/* ═══════════════════════════════════════════════════════════════
+   overlay.css  —  오버레이 컨트롤 패널 (mapOverlayControls.js)
+
+   ✦ 위치(top / right / transform 등)는 JS 인라인 스타일이 제어.
+     이 파일은 색상·버튼 형태·툴팁·전환 애니메이션만 담당합니다.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 공통 토큰 ───────────────────────────────────────────────── */
+:root {
+  --oc-bg:          rgba(12, 14, 20, 0.85);
+  --oc-border:      rgba(255, 255, 255, 0.08);
+  --oc-shadow:      0 8px 32px rgba(0,0,0,.45),
+                    inset 0 1px 0 rgba(255,255,255,.06);
+
+  --oc-btn-size:    38px;
+  --oc-icon-size:   18px;
+  --oc-btn-bg:      rgba(255,255,255,.05);
+  --oc-btn-border:  rgba(255,255,255,.07);
+  --oc-text-dim:    rgba(255,255,255,.28);
+  --oc-text-mid:    rgba(255,255,255,.55);
+  --oc-text-hi:     rgba(255,255,255,.92);
+
+  /* 레이어 활성 색상 */
+  --oc-c-traffic:  239, 68,  68;
+  --oc-c-sat:       59,130, 246;
+  --oc-c-bike:      34,197,  94;
+  --oc-c-district: 168, 85, 247;
+}
+
+/* ── 패널 컨테이너 ───────────────────────────────────────────── */
+.oc-panel {
+  /* position / top / right / transform 은 JS 인라인 스타일 담당 */
+  position: absolute;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  background: var(--oc-bg);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid var(--oc-border);
+  box-shadow: var(--oc-shadow);
+  user-select: none;
+
+  /* 레이아웃 전환 스무스 */
+  transition:
+    border-radius .3s ease,
+    padding       .3s ease;
+}
+
+/* ── 섹션 레이블 ─────────────────────────────────────────────── */
+.oc-section-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--oc-text-dim);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ── 구분선 (JS 가 width/height/margin 제어) ─────────────────── */
+.oc-sep {
+  background: var(--oc-border);
+  border-radius: 2px;
+  flex-shrink: 0;
+  transition: width .3s ease, height .3s ease, margin .3s ease;
+}
+
+/* ── 버튼 래퍼 (툴팁 앵커) ───────────────────────────────────── */
+.oc-btn-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* ── 공통 버튼 ───────────────────────────────────────────────── */
+.oc-btn {
+  /* width / height / border-radius 는 JS 가 제어 */
+  width:  var(--oc-btn-size);
+  height: var(--oc-btn-size);
+  border-radius: 10px;
+  border: 1px solid var(--oc-btn-border);
+  background: var(--oc-btn-bg);
+  color: var(--oc-text-mid);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  outline: none;
+  flex-shrink: 0;
+  transition:
+    background  .18s ease,
+    color       .18s ease,
+    border-color .18s ease,
+    box-shadow  .18s ease,
+    transform   .12s ease;
+}
+
+.oc-btn svg {
+  width:  var(--oc-icon-size);
+  height: var(--oc-icon-size);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.oc-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,.11);
+  color: var(--oc-text-hi);
+  border-color: rgba(255,255,255,.15);
+  transform: scale(1.07);
+}
+.oc-btn:active:not(:disabled) { transform: scale(.94); }
+.oc-btn:disabled               { opacity: .22; cursor: not-allowed; }
+
+/* ── 활성 레이어 색상 ────────────────────────────────────────── */
+.oc-btn--active[data-layer="traffic"]  {
+  background: rgba(var(--oc-c-traffic), .18);  border-color: rgba(var(--oc-c-traffic), .5);
+  color: #f87171; box-shadow: 0 0 12px rgba(var(--oc-c-traffic), .25);
+}
+.oc-btn--active[data-layer="satellite"] {
+  background: rgba(var(--oc-c-sat), .18);       border-color: rgba(var(--oc-c-sat), .5);
+  color: #60a5fa; box-shadow: 0 0 12px rgba(var(--oc-c-sat), .25);
+}
+.oc-btn--active[data-layer="bicycle"]  {
+  background: rgba(var(--oc-c-bike), .18);      border-color: rgba(var(--oc-c-bike), .5);
+  color: #4ade80; box-shadow: 0 0 12px rgba(var(--oc-c-bike), .25);
+}
+.oc-btn--active[data-layer="district"] {
+  background: rgba(var(--oc-c-district), .18);  border-color: rgba(var(--oc-c-district), .5);
+  color: #c084fc; box-shadow: 0 0 12px rgba(var(--oc-c-district), .25);
+}
+
+/* ── 툴팁 ────────────────────────────────────────────────────── */
+.oc-tooltip {
+  position: absolute;
+  white-space: nowrap;
+  background: rgba(12,14,20,.92);
+  border: 1px solid rgba(255,255,255,.10);
+  color: rgba(255,255,255,.85);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  padding: 4px 9px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease, transform .15s ease;
+
+  /* 기본: 버튼 왼쪽 (vertical 모드용) */
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(4px);
+}
+.oc-btn-wrap:hover .oc-tooltip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* compact 모드에서 툴팁은 위쪽 */
+.oc-panel.oc-compact .oc-tooltip {
+  right: auto;
+  bottom: calc(100% + 10px);
+  top: auto;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+}
+.oc-panel.oc-compact .oc-btn-wrap:hover .oc-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── 줌 래퍼 (JS가 flex-direction 제어) ──────────────────────── */
+.oc-zoom-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.oc-zoom-btn svg { width: 14px; height: 14px; }
+
+/* ── 레벨 숫자 ───────────────────────────────────────────────── */
+.oc-zoom-level {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255,255,255,.60);
+  min-width: 16px;
+  text-align: center;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* ── 줌 레벨 바 (JS가 width/height 제어) ─────────────────────── */
+.oc-bar-track {
+  border-radius: 2px;
+  background: rgba(255,255,255,.08);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.oc-bar-fill {
+  position: absolute;
+  border-radius: 2px;
+  bottom: 0; left: 0;
+  background: linear-gradient(to top, #38bdf8, #818cf8);
+  transition: width .25s ease, height .25s ease;
+}

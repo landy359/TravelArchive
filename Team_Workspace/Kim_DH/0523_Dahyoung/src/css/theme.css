@@ -1,0 +1,25 @@
+/* ==========================================================
+   THEME STYLES OVERRIDES (정적 테마 오버라이딩)
+   ========================================================== */
+body[data-theme="dark"] { background: #111827; color: #f3f4f6; }
+body[data-theme="dark"] .bg-gradient { background: radial-gradient(circle at 50% 50%, rgba(31,41,55,0.8) 0%, rgba(17,24,39,1) 100%); }
+body[data-theme="dark"] .hero h1,
+body[data-theme="dark"] .sidebar-title { color: rgba(255,255,255,0.9); }
+body[data-theme="dark"] .page-section h2 { color: rgba(255,255,255,0.95); }
+body[data-theme="dark"] .page-section p { color: rgba(255,255,255,0.75); }
+
+body[data-theme="green"] { background: #a8d5ba; }
+body[data-theme="green"] .bg-gradient { background: linear-gradient(180deg, #dcf0e3 0%, #a8d5ba 100%); }
+
+/* 사진 파노라마 테마 오버라이딩 */
+body[data-theme="photo"] .bg-light, 
+body[data-theme="photo"] .mist,
+body[data-theme="photo"] .bg-gradient { 
+  opacity: 0; 
+  pointer-events: none; 
+} 
+body[data-theme="photo"] .bg-panorama { 
+  opacity: 0.6; 
+  /* 90초 동안 천천히 왼쪽으로 이동한 후 되돌아오는 파노라마 애니메이션 */
+  animation: panPanorama 90s linear infinite alternate;
+}
