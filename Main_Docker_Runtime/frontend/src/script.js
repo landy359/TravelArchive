@@ -16,20 +16,31 @@ import { initMapInfoResizer } from './js/mapHeightResizer.js';
 import { NotificationManager } from './js/notification.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // ── OAuth 콜백: 카카오 로그인 후 /?access_token=...&refresh_token=... 처리 ──
+  // ── OAuth 콜백: 카카오 로그인 후 /?code=... 처리 (일회성 코드 교환) ──
   {
     const urlParams = new URLSearchParams(window.location.search);
-    const oauthAccess  = urlParams.get('access_token');
-    const oauthRefresh = urlParams.get('refresh_token');
-    if (oauthAccess && oauthRefresh) {
-      TokenManager.setTokens(oauthAccess, oauthRefresh);
-      TokenManager.setUserInfo({
-        userId:   urlParams.get('user_id')   || '',
-        userType: urlParams.get('user_type') || 'KKO',
-        nickname: decodeURIComponent(urlParams.get('nickname') || ''),
-        email:    decodeURIComponent(urlParams.get('email')    || ''),
-      });
+    const kakaoCode = urlParams.get('code');
+    if (kakaoCode) {
       window.history.replaceState({}, '', window.location.pathname + (window.location.hash || '#/'));
+      try {
+        const res = await fetch('/api/auth/kakao/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: kakaoCode }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.access_token && data.refresh_token) {
+            TokenManager.setTokens(data.access_token, data.refresh_token);
+            TokenManager.setUserInfo({
+              userId:   data.user_id   || '',
+              userType: data.user_type || 'KKO',
+              nickname: data.nickname  || '',
+              email:    data.email     || '',
+            });
+          }
+        }
+      } catch { /* 교환 실패 시 비로그인 상태로 진행 */ }
     }
     if (urlParams.get('kakao_linked') === '1') {
       window.history.replaceState({}, '', window.location.pathname + (window.location.hash || '#/'));

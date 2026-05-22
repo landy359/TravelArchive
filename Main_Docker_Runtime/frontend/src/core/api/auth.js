@@ -39,14 +39,17 @@ export async function signUp(userData) {
   return data;
 }
 
-/** 로그아웃 — 서버 측 refresh token 무효화 + 로컬 토큰 삭제 */
+/** 로그아웃 — 서버 측 refresh/access token 무효화 + 로컬 토큰 삭제 */
 export async function logout() {
   const refreshToken = TokenManager.getRefreshToken();
   if (refreshToken) {
     try {
+      const accessToken = TokenManager.getAccessToken();
+      const headers = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
       await fetch('/api/auth/logout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ refresh_token: refreshToken }),
       });
     } catch { /* 네트워크 실패해도 로컬은 삭제 */ }

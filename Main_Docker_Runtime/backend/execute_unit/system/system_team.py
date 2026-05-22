@@ -18,5 +18,9 @@ class TeamService:
         return await Cacher.create_team(user_id, name, redis, manager)
 
     @staticmethod
-    async def get_team_sessions(redis: Any, manager: Any, team_id: str) -> list:
+    async def get_team_sessions(redis: Any, manager: Any, team_id: str, user_id: str) -> list:
+        from fastapi import HTTPException
+        teams = await Cacher.get_user_teams(user_id, redis, manager)
+        if not any(t.get("team_id") == team_id for t in teams):
+            raise HTTPException(status_code=403, detail="팀 멤버만 접근 가능합니다")
         return await Cacher.get_team_sessions(team_id, redis, manager)

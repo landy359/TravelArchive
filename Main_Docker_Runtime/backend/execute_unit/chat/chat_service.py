@@ -14,7 +14,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from ...memory.cacher import Cacher
@@ -25,7 +25,21 @@ from .chat_session_container import SessionContainer
 # 임시 세션 저장소 — (container, last_access_ts) 쌍으로 보관
 _temp_sessions: Dict[str, tuple[SessionContainer, float]] = {}
 _TEMP_SESSION_TTL = 3600  # 1시간 미사용 시 제거
+_MAX_TEMP_SESSIONS = 200
 _BACKGROUND_TASKS: set[asyncio.Task] = set()  # create_task GC 방지
+
+_ALLOWED_MIME_TYPES = {
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "application/pdf",
+    "text/plain",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "video/mp4", "video/quicktime",
+    "audio/mpeg", "audio/wav",
+}
+_MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
 def _evict_temp_sessions() -> None:
@@ -50,6 +64,8 @@ class ChatService:
         """비로그인 임시채팅 전용. DB/Redis 저장 없음."""
         _evict_temp_sessions()
         now_ts = time.monotonic()
+        if temp_session_id not in _temp_sessions and len(_temp_sessions) >= _MAX_TEMP_SESSIONS:
+            raise HTTPException(status_code=429, detail="서버가 혼잡합니다. 잠시 후 다시 시도해주세요")
         if temp_session_id not in _temp_sessions:
             _temp_sessions[temp_session_id] = (SessionContainer(session_id=temp_session_id, user_id="TEMP"), now_ts)
         container, _ = _temp_sessions[temp_session_id]
@@ -462,16 +478,26 @@ class ChatService:
         os.makedirs(up_dir, exist_ok=True)
 
         names = []
+        originals = []
         for file in files:
-            safe_name = os.path.basename(file.filename or "upload")
+            content = await file.read()
+            if len(content) > _MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail=f"파일 크기는 20MB를 초과할 수 없습니다: {file.filename}")
+            content_type = (file.content_type or "").split(";")[0].strip()
+            if content_type not in _ALLOWED_MIME_TYPES:
+                raise HTTPException(status_code=415, detail=f"허용되지 않는 파일 형식입니다: {file.filename}")
+            original = os.path.basename(file.filename or "upload")
+            ext = os.path.splitext(original)[1].lower()
+            safe_name = uuid.uuid4().hex[:12] + ext
             dest = os.path.join(up_dir, safe_name)
-            with open(dest, "wb+") as f:
-                f.write(await file.read())
+            with open(dest, "wb") as f:
+                f.write(content)
             names.append(safe_name)
+            originals.append(original)
 
         if names:
-            await ChatService._save_file_message(session_id, user_id, names, redis, manager)
-        return {"success": True, "uploaded_files": names}
+            await ChatService._save_file_message(session_id, user_id, originals, redis, manager)
+        return {"success": True, "uploaded_files": originals}
 
     @staticmethod
     async def _save_file_message(session_id: str, user_id: str, names: list[str], redis: Any, manager: Any) -> None:

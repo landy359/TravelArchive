@@ -88,7 +88,8 @@ export function mount(chatHistory, { text = '', sender, meta = {}, onCopySuccess
 
   let processedText = text;
   if (sender === 'bot' && text && !isFileMsg && typeof marked !== 'undefined') {
-    processedText = marked.parse(text);
+    const raw = marked.parse(text);
+    processedText = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(raw) : raw;
   }
 
   const avatarChar = senderName
@@ -127,7 +128,7 @@ export function mount(chatHistory, { text = '', sender, meta = {}, onCopySuccess
     renderFileInMsg(msgDiv, url, mediaFile.name);
   } else if (msgType === 'file' && files.length > 0) {
     for (const fname of files) {
-      const fileUrl = `/uploads/${sessionId}/${senderId}/${fname}`;
+      const fileUrl = `/api/files/${sessionId}/${senderId}/${fname}`;
       renderFileInMsg(msgDiv, fileUrl, fname);
     }
   } else if (!(sender === 'bot' && text && typeof marked !== 'undefined')) {
@@ -159,7 +160,8 @@ export function mount(chatHistory, { text = '', sender, meta = {}, onCopySuccess
     msgEl: msgDiv,
     setText(newText) {
       if (sender === 'bot' && newText && typeof marked !== 'undefined') {
-        msgDiv.innerHTML = marked.parse(newText);
+        const raw = marked.parse(newText);
+        msgDiv.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(raw) : raw;
       } else {
         msgDiv.textContent = newText;
       }

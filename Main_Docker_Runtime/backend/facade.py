@@ -3,8 +3,11 @@ facade.py
 TravelArchive 백엔드 진입점 — HTTP 라우팅만. 로직 없음.
 """
 
+import json
 import os
+import secrets
 import sys
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -13,10 +16,9 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 load_dotenv(os.path.join(BASE_DIR, "setting", ".env"))
 
-from fastapi import Depends, FastAPI, File, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .execute_unit.auth import AuthUnit, get_current_user, get_optional_user
@@ -24,15 +26,19 @@ from .execute_unit.chat import ChatUnit
 from .execute_unit.system import SystemUnit
 from .execute_unit.user import UserUnit
 from .execute_unit.widget import WidgetUnit
+from .memory.cacher import Cacher
 from .memory.loader import Loader
 
 
 app = FastAPI(title="TravelArchive API", lifespan=Loader.lifespan)
 
+_CORS_ORIGINS_RAW = os.getenv("CORS_ALLOW_ORIGINS", "")
+_CORS_ORIGINS = [o.strip() for o in _CORS_ORIGINS_RAW.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_CORS_ORIGINS if _CORS_ORIGINS else ["*"],
+    allow_credentials=bool(_CORS_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -182,6 +188,18 @@ async def refresh(req: RefreshRequest, request: Request):
 
 @app.post("/api/auth/logout")
 async def logout(req: LogoutRequest, request: Request, user_id: Optional[str] = Depends(get_optional_user)):
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        from .jwt_utils import verify_access_token
+        try:
+            payload = verify_access_token(auth_header[7:])
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                remaining = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+                await request.app.state.redis.set_str(f"auth:revoked:{jti}", "1", remaining)
+        except Exception:
+            pass
     await AuthUnit.logout(req.refresh_token, user_id, request.app.state.manager)
     return {"status": "success", "message": "로그아웃 되었습니다"}
 
@@ -203,17 +221,33 @@ async def kakao_callback(code: str, request: Request, state: Optional[str] = Non
     if result.get("linked"):
         return RedirectResponse("/?kakao_linked=1")
 
-    from urllib.parse import quote
-
-    redirect_url = (
-        f"/?access_token={result['access_token']}"
-        f"&refresh_token={result['refresh_token']}"
-        f"&user_id={quote(result.get('user_id', ''))}"
-        f"&user_type={result['type']}"
-        f"&nickname={quote(result.get('nickname', ''))}"
-        f"&email={quote(result.get('email', '') or '')}"
+    exchange_code = secrets.token_urlsafe(24)
+    await request.app.state.redis.set_str(
+        f"auth:kakao_code:{exchange_code}",
+        json.dumps({
+            "access_token": result["access_token"],
+            "refresh_token": result["refresh_token"],
+            "user_id": result.get("user_id", ""),
+            "user_type": result["type"],
+            "nickname": result.get("nickname", ""),
+            "email": result.get("email", "") or "",
+        }),
+        60,
     )
-    return RedirectResponse(redirect_url)
+    return RedirectResponse(f"/?code={exchange_code}")
+
+
+@app.post("/api/auth/kakao/exchange")
+async def kakao_exchange(request: Request):
+    body = await request.json()
+    exchange_code = body.get("code", "")
+    if not exchange_code:
+        raise HTTPException(status_code=400, detail="code가 없습니다")
+    raw = await request.app.state.redis.get_str(f"auth:kakao_code:{exchange_code}")
+    if not raw:
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 코드입니다")
+    await request.app.state.redis.delete(f"auth:kakao_code:{exchange_code}")
+    return json.loads(raw)
 
 
 @app.get("/api/auth/kakao/link")
@@ -334,7 +368,7 @@ async def create_team(req: TeamCreateRequest, request: Request, user_id: str = D
 
 @app.get("/api/teams/{team_id}/sessions")
 async def get_team_sessions(team_id: str, request: Request, user_id: str = Depends(get_current_user)):
-    return await SystemUnit.get_team_sessions(request.app.state.redis, request.app.state.manager, team_id)
+    return await SystemUnit.get_team_sessions(request.app.state.redis, request.app.state.manager, team_id, user_id)
 
 
 @app.get("/api/sessions")
@@ -347,18 +381,32 @@ async def create_session(req: SessionCreateRequest, request: Request, user_id: s
     return await SystemUnit.create_session(user_id, req.trip_id or req.plan_id, request.app.state.redis, request.app.state.manager)
 
 
+async def _require_session_member(
+    session_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> str:
+    if not await Cacher.check_session_participant(
+        session_id, user_id,
+        request.app.state.redis,
+        request.app.state.manager,
+    ):
+        raise HTTPException(status_code=403, detail="세션에 대한 접근 권한이 없습니다")
+    return user_id
+
+
 @app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def delete_session(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.delete_session(session_id, user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.post("/api/sessions/{session_id}/leave")
-async def leave_session(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def leave_session(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.leave_session(session_id, user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.post("/api/sessions/{session_id}/convert-personal")
-async def convert_to_personal(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def convert_to_personal(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.convert_to_personal(session_id, user_id, request.app.state.redis, request.app.state.manager)
 
 
@@ -368,78 +416,78 @@ async def search_users(q: str, request: Request, user_id: str = Depends(get_curr
 
 
 @app.get("/api/sessions/{session_id}/events")
-async def session_events(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def session_events(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.subscribe_session_events(session_id, user_id)
 
 
 @app.post("/api/sessions/{session_id}/invite")
-async def invite_user(session_id: str, req: InviteRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def invite_user(session_id: str, req: InviteRequest, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.invite_user(session_id, req.user, user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.post("/api/sessions/{session_id}/share")
-async def share_chat(session_id: str, user_id: str = Depends(get_current_user)):
+async def share_chat(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.share_chat(session_id, user_id)
 
 
 @app.post("/api/sessions/{session_id}/open")
-async def session_open(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def session_open(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.session_open(session_id, user_id, request.app.state.manager)
 
 
 @app.post("/api/sessions/{session_id}/blur")
-async def session_blur(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def session_blur(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return SystemUnit.session_blur(session_id, user_id, request.app.state.manager)
 
 
 @app.get("/api/sessions/{session_id}/info")
-async def get_session_info(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def get_session_info(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.get_session_info(request.app.state.redis, request.app.state.manager, session_id)
 
 
 @app.put("/api/sessions/{session_id}/title")
-async def update_session_title(session_id: str, req: TitleUpdateRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def update_session_title(session_id: str, req: TitleUpdateRequest, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.update_session_title(session_id, req.title, user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.patch("/api/sessions/{session_id}/color")
-async def update_session_color(session_id: str, req: SessionColorUpdateRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def update_session_color(session_id: str, req: SessionColorUpdateRequest, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.update_session_color(session_id, req.color, user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.patch("/api/sessions/{session_id}/trip")
-async def update_session_trip(session_id: str, req: SessionTripUpdateRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def update_session_trip(session_id: str, req: SessionTripUpdateRequest, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.move_session_to_trip(request.app.state.redis, request.app.state.manager, session_id, req.trip_id, user_id)
 
 
 @app.get("/api/sessions/{session_id}/history")
-async def get_chat_history(session_id: str, request: Request, limit: int = 40, offset: int = 0, user_id: str = Depends(get_current_user)):
+async def get_chat_history(session_id: str, request: Request, limit: int = 40, offset: int = 0, user_id: str = Depends(_require_session_member)):
+    limit = min(max(1, limit), 200)
     return await ChatUnit.get_chat_history(session_id, request.app.state.redis, request.app.state.manager, limit=limit, offset=offset)
 
 
 @app.post("/api/sessions/{session_id}/message")
-async def send_message(session_id: str, req: MessageRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def send_message(session_id: str, req: MessageRequest, request: Request, user_id: str = Depends(_require_session_member)):
     return await ChatUnit.send_message(session_id, req.message, user_id, request.app.state.redis, request.app.state.manager)
 
 
-
 @app.post("/api/sessions/{session_id}/read")
-async def mark_session_read(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def mark_session_read(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.mark_session_read(request.app.state.redis, request.app.state.manager, session_id, user_id)
 
 
 @app.get("/api/sessions/{session_id}/download")
-async def download_chat(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def download_chat(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return await SystemUnit.download_chat(session_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.post("/api/sessions/{session_id}/files")
-async def upload_files(session_id: str, request: Request, files: List[UploadFile] = File(...), user_id: str = Depends(get_current_user)):
+async def upload_files(session_id: str, request: Request, files: List[UploadFile] = File(...), user_id: str = Depends(_require_session_member)):
     return await SystemUnit.upload_files(session_id, files, user_id, request.app.state.redis, request.app.state.manager)
 
 
 @app.post("/api/sessions/{session_id}/map/markers/add")
-async def add_map_marker(session_id: str, req: MapMarkerAddRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def add_map_marker(session_id: str, req: MapMarkerAddRequest, request: Request, user_id: str = Depends(_require_session_member)):
     markers = await WidgetUnit.get_markers(session_id, request.app.state.redis)
     markers.append({"marker_id": req.marker_id, "lat": req.lat, "lng": req.lng, "title": req.title or ""})
     await WidgetUnit.set_markers(session_id, request.app.state.redis, markers)
@@ -447,42 +495,42 @@ async def add_map_marker(session_id: str, req: MapMarkerAddRequest, request: Req
 
 
 @app.delete("/api/sessions/{session_id}/map/markers/{marker_id}")
-async def delete_map_marker(session_id: str, marker_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def delete_map_marker(session_id: str, marker_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     markers = [m for m in await WidgetUnit.get_markers(session_id, request.app.state.redis) if m.get("marker_id") != marker_id]
     await WidgetUnit.set_markers(session_id, request.app.state.redis, markers)
     return {"success": True}
 
 
 @app.post("/api/sessions/{session_id}/map/markers")
-async def save_map_markers(session_id: str, req: MapMarkersRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def save_map_markers(session_id: str, req: MapMarkersRequest, request: Request, user_id: str = Depends(_require_session_member)):
     await WidgetUnit.set_markers(session_id, request.app.state.redis, req.markers)
     return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/map/markers")
-async def get_map_markers(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def get_map_markers(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return {"markers": await WidgetUnit.get_markers(session_id, request.app.state.redis)}
 
 
 @app.post("/api/sessions/{session_id}/map/routes")
-async def save_map_routes(session_id: str, req: MapRoutesRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def save_map_routes(session_id: str, req: MapRoutesRequest, request: Request, user_id: str = Depends(_require_session_member)):
     await WidgetUnit.set_routes(session_id, request.app.state.redis, req.marker_ids)
     return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/map/routes")
-async def get_map_routes(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def get_map_routes(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return {"marker_ids": await WidgetUnit.get_routes(session_id, request.app.state.redis)}
 
 
 @app.put("/api/sessions/{session_id}/trip_range")
-async def save_trip_range(session_id: str, req: TripRangeRequest, request: Request, user_id: str = Depends(get_current_user)):
+async def save_trip_range(session_id: str, req: TripRangeRequest, request: Request, user_id: str = Depends(_require_session_member)):
     await WidgetUnit.set_trip_range(session_id, request.app.state.redis, req.ranges)
     return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/trip_range")
-async def get_trip_range(session_id: str, request: Request, user_id: str = Depends(get_current_user)):
+async def get_trip_range(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return {"ranges": await WidgetUnit.get_trip_range(session_id, request.app.state.redis)}
 
 
@@ -529,8 +577,25 @@ async def admin_get_active_sessions(user_id: str = Depends(_require_admin)):
 RESOURCE_DIR = os.path.join(BASE_DIR, "resource")
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend", "dist")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+_UPLOADS_REAL = os.path.realpath(UPLOADS_DIR)
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+
+@app.get("/api/files/{session_id}/{uploader_id}/{filename}")
+async def serve_uploaded_file(
+    session_id: str,
+    uploader_id: str,
+    filename: str,
+    request: Request,
+    user_id: str = Depends(_require_session_member),
+):
+    file_path = os.path.realpath(os.path.join(UPLOADS_DIR, session_id, uploader_id, filename))
+    if not file_path.startswith(_UPLOADS_REAL + os.sep):
+        raise HTTPException(status_code=400, detail="잘못된 경로입니다")
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+    return FileResponse(file_path)
 
 
 @app.get("/")
@@ -538,6 +603,6 @@ async def read_index():
     return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+from fastapi.staticfiles import StaticFiles
 app.mount("/resource", StaticFiles(directory=RESOURCE_DIR), name="resource")
 app.mount("/", StaticFiles(directory=FRONTEND_DIR), name="frontend")

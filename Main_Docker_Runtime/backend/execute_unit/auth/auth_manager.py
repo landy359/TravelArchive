@@ -14,7 +14,7 @@ import asyncio
 import os
 from typing import Any, Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 
 from ...jwt_utils import verify_access_token  # noqa: F401 (re-used by DI below)
@@ -34,18 +34,28 @@ _ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> str:
     if not token:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다")
     payload = verify_access_token(token)
+    jti = payload.get("jti")
+    if jti:
+        redis = getattr(getattr(request.app, "state", None), "redis", None)
+        if redis and await redis.get_str(f"auth:revoked:{jti}"):
+            raise HTTPException(status_code=401, detail="로그아웃된 토큰입니다")
     return payload["sub"]
 
 
-async def get_optional_user(token: str = Depends(oauth2_scheme)) -> str | None:
+async def get_optional_user(request: Request, token: str = Depends(oauth2_scheme)) -> str | None:
     if not token:
         return None
     try:
         payload = verify_access_token(token)
+        jti = payload.get("jti")
+        if jti:
+            redis = getattr(getattr(request.app, "state", None), "redis", None)
+            if redis and await redis.get_str(f"auth:revoked:{jti}"):
+                return None
         return payload["sub"]
     except HTTPException:
         return None

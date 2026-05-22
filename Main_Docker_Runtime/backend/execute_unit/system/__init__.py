@@ -160,8 +160,8 @@ class SystemUnit:
         return await TeamService.create_team(redis, manager, user_id, name)
 
     @staticmethod
-    async def get_team_sessions(redis: Any, manager: Any, team_id: str) -> dict[str, Any]:
-        sessions = await TeamService.get_team_sessions(redis, manager, team_id)
+    async def get_team_sessions(redis: Any, manager: Any, team_id: str, user_id: str) -> dict[str, Any]:
+        sessions = await TeamService.get_team_sessions(redis, manager, team_id, user_id)
         return {"sessions": sessions}
 
     @staticmethod

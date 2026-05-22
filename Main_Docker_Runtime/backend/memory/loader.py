@@ -144,7 +144,7 @@ class Loader:
             {"email": email},
         )
         if not rows:
-            raise HTTPException(status_code=401, detail="존재하지 않는 계정입니다")
+            raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다")
         row = rows[0]
         user_id = row["user_id"]
         if row["user_type"] != "MEM":
@@ -169,7 +169,7 @@ class Loader:
             if fail_count >= 5:
                 update_data["locked_until"] = now + timedelta(minutes=30)
             await postgres.update("UserSecurity", {"user_id": user_id}, update_data)
-            detail = "로그인 5회 실패. 계정이 30분간 잠겼습니다" if fail_count >= 5 else f"비밀번호가 일치하지 않습니다 ({fail_count}/5)"
+            detail = "로그인 5회 실패. 계정이 30분간 잠겼습니다" if fail_count >= 5 else "이메일 또는 비밀번호가 올바르지 않습니다"
             raise HTTPException(status_code=403 if fail_count >= 5 else 401, detail=detail)
 
         await postgres.update("UserSecurity", {"user_id": user_id}, {"last_login_at": now, "login_fail_count": 0})
