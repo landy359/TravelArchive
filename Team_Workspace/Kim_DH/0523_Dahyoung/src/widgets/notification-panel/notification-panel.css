@@ -1,0 +1,117 @@
+/* ═══════════════════════════════════════════════════════════════
+   notification-panel.css  —  알림 드롭다운 (벨 아이콘 클릭 시 표시)
+
+   ✦ 트리거 버튼(.notif-btn) 과 뱃지(.notif-badge) 는 사이드바 자산이라
+     left_sidebar.css 에 그대로 둔다. 이 파일은 패널 본체만 담당.
+   ═══════════════════════════════════════════════════════════════ */
+
+.notif-panel {
+  position: fixed;
+  bottom: 72px;
+  left: 16px;
+  width: 280px;
+  max-height: 360px;
+  background: rgba(255, 255, 255, 0.80);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-xl, 16px);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.14));
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: var(--z-dropdown, 9999);
+}
+
+.notif-panel.notif-panel-open { display: flex; }
+
+/* ── 헤더 ────────────────────────────────────────────────────── */
+.notif-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(17, 24, 39, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.notif-clear-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary, #9ca3af);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 6px);
+  transition: background 0.15s;
+}
+.notif-clear-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--color-text-primary, #111827);
+}
+
+/* ── 바디 ────────────────────────────────────────────────────── */
+.notif-panel-body {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.notif-loading,
+.notif-empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(31, 41, 55, 0.5);
+}
+
+/* ── 항목 ────────────────────────────────────────────────────── */
+.notif-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  transition: background 0.15s;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item:not(.notif-read) { background: rgba(59, 130, 246, 0.06); }
+
+.notif-msg {
+  font-size: 13px;
+  color: rgba(17, 24, 39, 0.85);
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+.notif-read .notif-msg { color: rgba(31, 41, 55, 0.45); }
+
+/* ── 액션 (수락/거절) ────────────────────────────────────────── */
+.notif-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.notif-accept-btn,
+.notif-reject-btn {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.notif-accept-btn {
+  background: rgba(59, 130, 246, 0.85);
+  color: #fff;
+}
+.notif-reject-btn {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(31, 41, 55, 0.7);
+}
+.notif-accept-btn:hover { opacity: 0.85; }
+.notif-reject-btn:hover { opacity: 0.7; }
+.notif-accept-btn:disabled,
+.notif-reject-btn:disabled { opacity: 0.4; cursor: not-allowed; }

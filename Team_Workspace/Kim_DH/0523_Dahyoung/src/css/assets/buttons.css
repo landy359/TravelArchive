@@ -1,0 +1,69 @@
+/* ==========================================================
+   BUTTON ASSETS
+   ========================================================== */
+
+.btn-base {
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 14px;
+  border: none;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-speed) var(--transition-ease);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.btn-primary {
+  background: var(--bg-dark);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:hover {
+  background: #000;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.btn-secondary {
+  background: #fff;
+  color: var(--text-main);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.btn-secondary:hover {
+  background: #f9fafb;
+  transform: translateY(-2px);
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.btn-social {
+  height: 48px;
+  font-size: 14px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+
+.btn-social:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.btn-google { background: #fff; color: #1f2937; }
+.btn-kakao { background: #FEE500; color: #191919; }
+.btn-naver { background: #03C75A; color: #fff; }
+.btn-signup { 
+  background: rgba(59, 130, 246, 0.22); /* Increase opacity (0.08 -> 0.22) */
+  color: var(--primary-color); 
+  border: 1px solid rgba(59, 130, 246, 0.35); 
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}

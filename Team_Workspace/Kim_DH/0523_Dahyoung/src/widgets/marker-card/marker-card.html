@@ -1,0 +1,43 @@
+<div class="rs-marker-card">
+  <div class="rs-card-header">
+    <div class="rs-card-top">
+      <span class="rs-card-seq"></span>
+      <h4 class="rs-card-title">조회 중…</h4>
+    </div>
+    <button class="rs-card-close-btn" data-close title="닫기"></button>
+  </div>
+
+  <div class="rs-card-body">
+    <div class="rs-skeleton" data-sk>
+      <div class="rs-sk rs-sk-w80"></div>
+      <div class="rs-sk rs-sk-w60"></div>
+      <div class="rs-sk rs-sk-w70"></div>
+    </div>
+
+    <ul class="rs-info-list" data-list hidden>
+      <li class="rs-info-row">
+        <span class="rs-info-label">도로명</span>
+        <span class="rs-info-value" data-road>—</span>
+      </li>
+      <li class="rs-info-row">
+        <span class="rs-info-label">지번</span>
+        <span class="rs-info-value" data-jibun>—</span>
+      </li>
+      <li class="rs-info-row">
+        <span class="rs-info-label">구역</span>
+        <span class="rs-info-value" data-region>—</span>
+      </li>
+      <li class="rs-info-row">
+        <span class="rs-info-label">좌표</span>
+        <span class="rs-info-value rs-mono" data-coord>—</span>
+      </li>
+    </ul>
+
+    <p class="rs-error-msg" data-error hidden>주소를 가져올 수 없습니다.</p>
+  </div>
+
+  <div class="rs-card-actions">
+    <button class="rs-action-btn" data-copy></button>
+    <button class="rs-action-btn rs-action-primary" data-naver></button>
+  </div>
+</div>

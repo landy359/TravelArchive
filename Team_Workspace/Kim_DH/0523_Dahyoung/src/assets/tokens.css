@@ -1,0 +1,156 @@
+/* ═══════════════════════════════════════════════════════════════
+   tokens.css  —  디자인 토큰 (단일 진실 공급원)
+
+   ✦ 모든 css 자원은 이 파일의 변수만 참조합니다.
+   ✦ 기존 변수명은 호환을 위해 유지하고 새 토큰을 추가했습니다.
+   ✦ 색/간격/반경/그림자/Z-index/전환 5종 분류.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ─────────────────────────────────────────
+     COLOR — 색상
+     ───────────────────────────────────────── */
+  /* 표면 (배경/패널) */
+  --color-bg-app:           #f7f7f8;
+  --color-bg-dark:          #111827;
+  --color-bg-overlay:       rgba(12, 14, 20, 0.85);
+  --color-bg-glass-1:       rgba(255, 255, 255, 0.40);
+  --color-bg-glass-2:       rgba(255, 255, 255, 0.50);
+  --color-bg-glass-3:       rgba(255, 255, 255, 0.60);
+
+  /* 텍스트 */
+  --color-text-primary:     #111827;
+  --color-text-secondary:   rgba(31, 41, 55, 0.70);
+  --color-text-muted:       rgba(31, 41, 55, 0.50);
+  --color-text-on-dark:     rgba(255, 255, 255, 0.92);
+  --color-text-on-dark-mid: rgba(255, 255, 255, 0.55);
+  --color-text-on-dark-dim: rgba(255, 255, 255, 0.28);
+
+  /* 보더/구분선 */
+  --color-border-soft:      rgba(255, 255, 255, 0.08);
+  --color-border-medium:    rgba(255, 255, 255, 0.14);
+  --color-border-strong:    rgba(255, 255, 255, 0.34);
+  --color-border-dark-soft: rgba(0, 0, 0, 0.06);
+  --color-border-dark:      rgba(0, 0, 0, 0.12);
+
+  /* 의미적 색상 */
+  --color-accent:           #3b82f6;   /* primary */
+  --color-accent-dark:      #1d4ed8;
+  --color-accent-soft:      rgba(96, 165, 250, 0.85);
+  --color-warning:          #f59e0b;
+  --color-danger:           #ef4444;
+  --color-success:          #22c55e;
+  --color-info:             #60a5fa;
+  --color-violet:           #8b5cf6;
+
+  /* 레이어 활성색 (오버레이 컨트롤) */
+  --color-layer-traffic:    239, 68,  68;
+  --color-layer-sat:         59, 130, 246;
+  --color-layer-bike:        34, 197,  94;
+  --color-layer-district:   168,  85, 247;
+
+  /* ─────────────────────────────────────────
+     SPACE — 간격 (4px scale)
+     ───────────────────────────────────────── */
+  --space-0:   0;
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:   12px;
+  --space-4:   16px;
+  --space-5:   20px;
+  --space-6:   24px;
+  --space-7:   32px;
+  --space-8:   40px;
+  --space-9:   48px;
+  --space-10:  64px;
+
+  /* ─────────────────────────────────────────
+     RADIUS — 모서리
+     ───────────────────────────────────────── */
+  --radius-xs:    2px;
+  --radius-sm:    6px;
+  --radius-md:    8px;
+  --radius-lg:    12px;
+  --radius-xl:    16px;
+  --radius-2xl:   20px;
+  --radius-3xl:   24px;
+  --radius-4xl:   32px;
+  --radius-pill:  9999px;
+  --radius-full:  50%;
+
+  /* ─────────────────────────────────────────
+     SHADOW — 그림자
+     ───────────────────────────────────────── */
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md:    0 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:    0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl:    0 12px 40px rgba(0, 0, 0, 0.18);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.45),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* ─────────────────────────────────────────
+     Z-INDEX — 스택 순서
+     ───────────────────────────────────────── */
+  --z-base:        0;
+  --z-content:     1;
+  --z-floating:    10;
+  --z-overlay:     100;
+  --z-dropdown:    500;
+  --z-modal:       1000;
+  --z-toast:       2000;
+  --z-tooltip:     3000;
+
+  /* ─────────────────────────────────────────
+     MOTION — 전환 (기존 유지)
+     ───────────────────────────────────────── */
+  --motion-fast:   0.15s;
+  --motion-base:   0.25s;
+  --motion-slow:   0.40s;
+  --motion-ease:   cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-spring: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ─────────────────────────────────────────
+     TYPE — 폰트 크기 (스케일)
+     ───────────────────────────────────────── */
+  --text-2xs:  10px;
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-md:   13px;
+  --text-base: 14px;
+  --text-lg:   16px;
+  --text-xl:   20px;
+  --text-2xl:  24px;
+  --text-3xl:  32px;
+
+  /* ═══════════════════════════════════════════
+     LEGACY ALIASES — 기존 변수명 호환
+     (기존 css 파일들이 이 이름을 직접 참조하므로 유지)
+     ═══════════════════════════════════════════ */
+  --app-font-family:        "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --app-font-size:          15px;
+  --app-padding:            18px;
+  --app-glass-opacity:      0.70;
+  --bg-dark:                var(--color-bg-dark);
+  --primary-color:          var(--color-accent);
+  --primary-dark:           var(--color-accent-dark);
+  --text-main:              var(--color-text-primary);
+  --text-muted:             var(--color-text-secondary);
+  --card-radius:            var(--radius-3xl);
+  --panel-radius:           var(--radius-4xl);
+  --transition-speed:       var(--motion-slow);
+  --transition-ease:        var(--motion-ease);
+
+  --glass-bg:               rgba(255, 255, 255, var(--app-glass-opacity, 0.14));
+  --glass-blur:             40px;
+  --glass-border:           var(--color-border-strong);
+  --glass-level-1:          calc(var(--app-glass-opacity) + 0.10);
+  --glass-level-2:          calc(var(--app-glass-opacity) + 0.16);
+
+  --sidebar-glass-opacity:  calc(var(--app-glass-opacity) + 0.20);
+  --sidebar-bg:             rgba(255, 255, 255, var(--sidebar-glass-opacity));
+  --sidebar-blur:           45px;
+  --sidebar-default-width:  300px;
+  --sidebar-min-width:      260px;
+  --sidebar-max-width:      45%;
+  --right-sidebar-max-width: 65%;
+}

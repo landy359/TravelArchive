@@ -1,0 +1,98 @@
+.trip-select-row {
+  width: min(760px, 100%);
+  margin-right: auto;
+}
+
+.trip-select-widget {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: var(--bg-primary, #ffffff);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.trip-select-header {
+  margin-bottom: 10px;
+  color: var(--text-secondary, #475569);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.trip-select-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trip-select-card {
+  min-height: 154px;
+  padding: 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary, #111827);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.trip-select-card:hover,
+.trip-select-card:focus-visible {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.trip-select-card.is-selected {
+  border-color: var(--accent, #2563eb);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.trip-select-label {
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(20, 184, 166, 0.12);
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.trip-select-title {
+  color: var(--text-primary, #111827);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.trip-select-desc {
+  color: var(--text-secondary, #475569);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.trip-select-action {
+  margin-top: auto;
+  color: var(--accent, #2563eb);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .trip-select-cards {
+    grid-template-columns: 1fr;
+  }
+}

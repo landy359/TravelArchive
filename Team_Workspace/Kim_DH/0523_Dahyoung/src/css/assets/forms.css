@@ -1,0 +1,40 @@
+/* ==========================================================
+   FORM ASSETS
+   ========================================================== */
+
+.input-base {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+  color: #111827;
+  font-size: 14px;
+  font-weight: 500;
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.input-base:focus {
+  border-color: #3b82f6;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.label-base {
+  display: block;
+  margin-bottom: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  color: rgba(17, 24, 39, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.input-field-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}

@@ -1,0 +1,561 @@
+/* ==========================================================
+   MEDIA QUERIES (반응형 무결점 + 버튼/사이드바/채팅창 정리)
+   ========================================================== */
+.sidebar-overlay,
+.right-sidebar-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.show,
+.right-sidebar-overlay.show {
+  opacity: 1;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    padding: 15px;
+  }
+
+  .main-panel {
+    border-radius: 24px;
+    height: calc(100vh - 30px);
+    height: calc(100dvh - 30px);
+  }
+
+  .sidebar {
+    width: 240px;
+    padding: 18px 8px 18px 14px !important; 
+    z-index: 100; /* Ensure it stays above content when open */
+  }
+
+  .sidebar-header {
+    padding: 0 !important;
+    margin: 0 6px 16px 0 !important;
+    width: calc(100% - 6px) !important;
+  }
+
+  .sidebar-view {
+    padding: 0 !important;
+    margin: 0 6px 0 0 !important; /* Unified 6px right margin */
+    width: calc(100% - 6px) !important;
+  }
+
+  .sidebar-footer {
+    padding: 12px 10px !important;
+    margin: 0 6px 0 0 !important;
+    width: calc(100% - 6px) !important;
+  }
+
+  .right-sidebar {
+    width: 400px;
+    padding: 18px 14px;
+    z-index: 45; /* Ensure it stays above content */
+  }
+
+  /* Tablet Content Constraint */
+  body.left-open .content,
+  body.right-open .content {
+    opacity: 0.35;
+    filter: blur(2px);
+    pointer-events: none;
+  }
+
+  body.left-open.right-open .content {
+    opacity: 0.1;
+  }
+
+  /* 태블릿: content padding 조정 */
+  .content {
+    padding: 0 32px;
+  }
+
+  .sidebar-title {
+    font-size: 24px;
+  }
+
+  .hero h1 {
+    font-size: 48px;
+  }
+
+  .hero p {
+    font-size: 17px;
+  }
+
+  .page-section h2 {
+    font-size: 30px;
+  }
+
+  .page-section p {
+    font-size: 16px;
+  }
+
+  .chat-history {
+    padding: 24px 32px;
+  }
+
+  .chat-wrap {
+    padding: 0 32px 26px 32px;
+  }
+
+  .top-bar {
+    max-width: calc(100% - 28px);
+    padding: 16px 22px 0 !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .main-panel {
+    border-radius: 20px;
+    height: calc(100vh - 24px);
+    height: calc(100dvh - 24px);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* 모바일에서 content 좌우 여백 축소: 카드 및 채팅 레이아웃 공간 확보 */
+  .content {
+    padding: 0 16px;
+  }
+
+  .light-1 {
+    width: 220px;
+    height: 220px;
+  }
+
+  .light-2 {
+    width: 260px;
+    height: 260px;
+  }
+
+  .light-3 {
+    width: 280px;
+    height: 280px;
+  }
+
+  .img-1 {
+    height: 160px;
+  }
+
+  .img-2 {
+    height: 140px;
+  }
+
+  .img-3 {
+    height: 160px;
+  }
+
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100% !important;
+    max-height: 100% !important;
+    width: 0 !important;
+    padding: 0 !important;
+    opacity: 0;
+    z-index: 50;
+    border-right: none;
+    border-radius: 20px 0 0 20px;
+    /* Fix Item 11: Consistent transparency with monitor */
+    background: rgba(255, 255, 255, var(--app-glass-opacity, 0.92));
+    backdrop-filter: blur(var(--sidebar-blur, 55px));
+    -webkit-backdrop-filter: blur(var(--sidebar-blur, 55px));
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
+    white-space: nowrap;
+    overflow: hidden !important;
+    transition:
+      width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+      padding 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.28s ease;
+  }
+
+  .sidebar.open {
+    width: min(78vw, 284px) !important;
+    padding: 18px 8px 28px 14px !important;
+    opacity: 1;
+    overflow-y: auto !important;
+  }
+
+  .sidebar.collapsed {
+    width: 0 !important;
+    padding: 0 !important;
+    opacity: 0;
+    border-right: none;
+  }
+
+  .sidebar-overlay {
+    display: block;
+  }
+
+  .right-sidebar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: auto;
+    height: 100% !important;
+    max-height: 100% !important;
+    width: 0 !important;
+    padding: 0 !important;
+    opacity: 0;
+    z-index: 50;
+    border-left: none;
+    border-radius: 20px 0 0 20px;
+    /* Fix Item 11: Consistent transparency with monitor */
+    background: rgba(255, 255, 255, var(--app-glass-opacity, 0.92));
+    backdrop-filter: blur(var(--sidebar-blur, 55px));
+    -webkit-backdrop-filter: blur(var(--sidebar-blur, 55px));
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+    white-space: nowrap;
+    overflow: hidden !important;
+    transition:
+      width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+      padding 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.28s ease;
+  }
+
+  .right-sidebar.open {
+    width: min(80vw, 304px) !important;
+    padding: 18px 14px 20px !important;
+    opacity: 1;
+    overflow-y: auto !important;
+  }
+
+  .right-sidebar.collapsed {
+    width: 0 !important;
+    padding: 0 !important;
+    opacity: 0;
+    border-left: none;
+  }
+
+  .right-sidebar-overlay {
+    display: block;
+  }
+
+  .top-bar {
+    width: 100%;
+    max-width: calc(100% - 20px);
+    padding: 14px 16px 0 !important;
+    gap: 8px;
+  }
+
+  .top-bar-left,
+  .top-bar-right {
+    gap: 8px;
+    transform: none !important;
+    transition: margin 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .top-bar-left {
+    margin-left: -2px;
+  }
+
+  .top-bar-right {
+    margin-right: 6px;
+  }
+
+  .top-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+
+  .menu-btn,
+  .top-action-btn,
+  .map-btn {
+    position: relative;
+    z-index: 60;
+  }
+
+  body.left-open .top-bar-left {
+    margin-left: clamp(68px, 18vw, 100px);
+  }
+
+  body.right-open .top-bar-right {
+    margin-right: clamp(10px, 4vw, 18px);
+  }
+
+  /* 모바일: content padding 줄이기 */
+  .content {
+    padding: 0 clamp(12px, 2vw, 20px);
+  }
+
+  .hero {
+    margin-bottom: 0;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+    min-height: auto;
+  }
+
+  .hero-label {
+    display: none;
+  }
+
+  .hero h1 {
+    display: none;
+  }
+
+  .hero p {
+    display: none;
+  }
+
+  .page-section {
+    padding: 28px 16px;
+  }
+
+  .page-section h2 {
+    font-size: 26px;
+  }
+
+  .page-section p {
+    font-size: 15px;
+  }
+
+  .chat-history {
+    padding: 0 28px;
+    gap: 16px;
+  }
+
+  .message {
+    max-width: 88%;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  .chat-wrap {
+    padding: 0 24px calc(12px + env(safe-area-inset-bottom)) 24px;
+  }
+
+  .chat-box {
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 20px;
+  }
+
+  .chat-box textarea::placeholder {
+    font-size: 13px;
+  }
+
+  .chat-box textarea {
+    min-height: 37px !important;
+    height: auto !important;
+    padding: 7px 12px !important;
+    font-size: 15px;
+    line-height: 1.45;
+    border-radius: 16px;
+  }
+
+  .chat-box button#sendBtn {
+    height: 37px !important;
+    padding: 0 14px;
+    font-size: 13px;
+    border-radius: 14px;
+  }
+
+  .chat-box .expand-btn {
+    width: 37px;
+    height: 37px;
+  }
+
+  .chat-box.expanded textarea {
+    /* min-height and height: auto removed — handled by JS for smooth animation */
+  }
+
+  .theme-popup {
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    bottom: 70px;
+  }
+
+  .theme-popup.show {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  body[data-theme="dark"] .sidebar,
+  body[data-theme="dark"] .right-sidebar {
+    background: rgba(17, 24, 39, 0.98); 
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Improve mobile tap targets */
+  .section-toggle-btn, .row-action-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+  }
+
+  /* Mobile Safe Area Padding */
+  .sidebar-footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .sidebar-header {
+    padding: 0 !important;
+    margin: 0 6px 16px 0 !important;
+    width: calc(100% - 6px) !important;
+  }
+
+  .sidebar-view {
+    padding: 0 !important;
+    margin: 0 6px 0 0 !important; /* Unified 6px right margin */
+    width: calc(100% - 6px) !important;
+  }
+
+  .sidebar-section-title {
+    margin-top: 16px;
+    margin-bottom: 8px;
+  }
+
+  .sidebar-list {
+    padding-bottom: 144px;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    position: sticky;
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 6px));
+    margin-bottom: 0;
+    padding: 12px 10px !important;
+    margin-right: 6px !important;
+    width: calc(100% - 6px) !important;
+    background: rgba(255, 255, 255, var(--sidebar-glass-opacity, 0.65));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .right-sidebar-header {
+    margin-bottom: 14px;
+  }
+
+  .right-sidebar-content {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-shell {
+    padding: 8px;
+  }
+
+  .main-panel {
+    border-radius: 16px;
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+  }
+
+  /* 소형 모바일에서 content 여백 추가 축소 */
+  .content {
+    padding: 0 8px;
+  }
+
+  .hero h1 {
+    font-size: 28px;
+  }
+
+  .hero p {
+    font-size: 14px;
+  }
+
+  .chat-history {
+    padding: 0 24px;
+  }
+
+  .message {
+    max-width: 94%;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .chat-box {
+    border-radius: 18px;
+    padding: 6px 8px;
+  }
+
+  .chat-box textarea {
+    font-size: 14px;
+    padding: 7px 11px !important;
+    min-height: 36px !important;
+    height: auto !important;
+    line-height: 1.4;
+  }
+
+  .chat-wrap {
+    padding: 0 20px calc(12px + env(safe-area-inset-bottom)) 20px;
+  }
+
+  .chat-box button#sendBtn {
+    height: 36px !important;
+    padding: 0 12px;
+    font-size: 12px;
+    border-radius: 12px;
+  }
+
+  .expand-btn {
+    display: none;
+  }
+
+  .sidebar.open {
+    width: min(82vw, 272px) !important;
+    border-radius: 0;
+  }
+
+  .right-sidebar.open {
+    width: min(84vw, 284px) !important;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 896px) and (orientation: landscape) {
+  .app-shell {
+    padding: 12px 8px 4px;
+  }
+
+  .main-panel {
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+    border-radius: 18px;
+  }
+
+  .hero {
+    margin-bottom: 0;
+    padding-top: clamp(12px, 2vh, 24px);
+  }
+
+  .hero h1 {
+    font-size: 32px;
+  }
+
+  .hero p {
+    font-size: 14px;
+    margin-top: 10px;
+  }
+
+  .chat-wrap {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .chat-box textarea {
+    min-height: 37px !important;
+    height: auto !important;
+  }
+
+  .chat-box button#sendBtn {
+    height: 37px !important;
+  }
+}

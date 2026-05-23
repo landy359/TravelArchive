@@ -1,0 +1,18 @@
+/* ==========================================================
+   SELF-HOSTED FONTS
+   Pretendard (Korean+Latin), Noto Sans KR, Gothic A1
+   패키지: npm install pretendard @fontsource/noto-sans-kr @fontsource/gothic-a1
+   ========================================================== */
+
+/* ---------- Pretendard (dynamic subset — 한국어+Latin) ---------- */
+@import 'pretendard/dist/web/static/Pretendard-Regular.css';
+@import 'pretendard/dist/web/static/Pretendard-SemiBold.css';
+@import 'pretendard/dist/web/static/Pretendard-Bold.css';
+
+/* ---------- Noto Sans KR (Korean subset — @fontsource) ---------- */
+@import '@fontsource/noto-sans-kr/400.css';
+@import '@fontsource/noto-sans-kr/700.css';
+
+/* ---------- Gothic A1 (둥근 계열 — @fontsource) ---------- */
+@import '@fontsource/gothic-a1/400.css';
+@import '@fontsource/gothic-a1/700.css';

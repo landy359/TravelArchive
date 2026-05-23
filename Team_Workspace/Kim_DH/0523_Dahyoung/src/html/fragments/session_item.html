@@ -1,0 +1,37 @@
+<div class="sidebar-item-wrapper" data-session-id="{{sessionId}}">
+  <div class="session-color-bar" style="{{colorBarStyle}}"></div>
+  <button class="sidebar-item" data-session-id="{{sessionId}}">
+    <span class="trip-color-dot" style="{{tripColorStyle}}"></span>{{title}}
+  </button>
+  <input class="sidebar-item-edit-input" type="text" value="{{title}}" style="display: none;">
+  <div class="session-actions">
+    <button class="session-action-btn more-btn" title="메뉴">[[More]]</button>
+    <div class="session-dropdown-menu">
+      <div class="dropdown-item edit-btn">
+        <span class="icon">[[Edit]]</span>
+        <span>이름 변경</span>
+      </div>
+      <div class="dropdown-item invite-btn">
+        <span class="icon">[[UserPlus]]</span>
+        <span>여행친구 초대</span>
+      </div>
+      <div class="dropdown-item color-change-btn" style="display: none;">
+        <span class="icon">[[Palette]]</span>
+        <span>색상 변경</span>
+      </div>
+      <div class="dropdown-item convert-personal-btn" style="display: none;">
+        <span class="icon">[[Home]]</span>
+        <span>개인 세션으로 전환</span>
+      </div>
+      <div class="dropdown-divider"></div>
+      <div class="dropdown-item leave-btn danger" style="display: none;">
+        <span class="icon">[[LogOut]]</span>
+        <span>나가기</span>
+      </div>
+      <div class="dropdown-item delete-btn danger" style="display: none;">
+        <span class="icon">[[Trash]]</span>
+        <span>삭제</span>
+      </div>
+    </div>
+  </div>
+</div>

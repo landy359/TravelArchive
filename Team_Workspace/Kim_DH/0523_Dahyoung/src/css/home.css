@@ -1,0 +1,414 @@
+/* ==========================================================
+   HOME DASHBOARD — 여행 카드 대시보드
+   ========================================================== */
+
+/* ── 임시 채팅 종료 버튼 ── */
+.exit-temp-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 11px 22px;
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.18s, transform 0.15s;
+}
+.exit-temp-chat-btn:hover {
+  background: rgba(255,255,255,0.32);
+  transform: translateY(-1px);
+}
+
+/* 홈 대시보드 래퍼: hero flex 아이템 */
+.home-dashboard-wrapper {
+  position: relative;
+  width: 100%;
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* 대시보드 활성 시: 추가 조정 */
+.hero.dashboard-active {
+  padding-bottom: clamp(12px, 2vh, 20px);
+}
+
+/* 인사말 + 카드 트랙을 담는 컨테이너 */
+.home-dash {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 인사말 */
+.home-greeting {
+  font-size: clamp(14px, 2vw, 19px);
+  font-weight: 600;
+  color: rgba(17, 24, 39, 0.6);
+  padding-left: 4px;
+  animation: greetingFadeIn 0.5s ease both;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-greeting-name {
+  font-weight: 800;
+  color: rgba(17, 24, 39, 0.85);
+  margin-right: 4px;
+}
+
+@keyframes greetingFadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 카드 트랙: JS 3D 캐러셀 컨테이너 ── */
+.trip-card-track {
+  position: relative;
+  width: 100%;
+  /* 카드 높이를 반응형으로 조정 */
+  height: clamp(200px, 32vh, 280px);
+  overflow: visible;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y pinch-zoom;
+}
+
+.trip-card-track.dragging {
+  cursor: grabbing;
+}
+
+/* ── 카드 공통: 절대 위치 기반 ── */
+/* .trip-card / .trip-card-delete-btn / .trip-card-map-icon / .trip-card-title / .trip-card-footer / .trip-card-mode-badge / .trip-card-date  →  widgets/trip-card/trip-card.css */
+
+/* ── 새 여행 카드 ── */
+.trip-card-new {
+  border: 2px dashed rgba(17, 24, 39, 0.18);
+  background: rgba(255, 255, 255, 0.35);
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(17, 24, 39, 0.45);
+}
+
+.trip-card-new:hover {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.07);
+  color: #3b82f6;
+}
+
+.trip-card-new-plus {
+  font-size: 36px;
+  font-weight: 300;
+  line-height: 1;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.trip-card-new:hover .trip-card-new-plus {
+  transform: rotate(90deg) scale(1.15);
+}
+
+.trip-card-new-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── 세션 없을 때 ── */
+.home-empty-hint {
+  font-size: 13px;
+  color: rgba(17, 24, 39, 0.38);
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+/* ── 새 여행 목적지 입력 모달 ── */
+.new-trip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.22);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;   /* 숨김 상태에서 클릭 차단 */
+  transition: opacity 0.22s ease;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.new-trip-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.new-trip-modal {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 24px;
+  padding: 32px 36px 28px;
+  min-width: 320px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow:
+    0 20px 60px rgba(17, 24, 39, 0.14),
+    0 4px 16px rgba(17, 24, 39, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.new-trip-modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: rgba(17, 24, 39, 0.88);
+  text-align: center;
+}
+
+.new-trip-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-family: inherit;
+  color: rgba(17, 24, 39, 0.9);
+  background: rgba(255, 255, 255, 0.70);
+  border: 1.5px solid rgba(59, 130, 246, 0.35);
+  border-radius: 12px;
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.new-trip-modal-input:focus {
+  border-color: rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+/* 제출 버튼: 터치 환경에서만 표시 */
+.new-trip-modal-submit {
+  display: none;
+  width: 100%;
+  padding: 13px;
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.18s ease;
+  box-sizing: border-box;
+}
+
+.new-trip-modal-submit:hover {
+  background: #000;
+}
+
+/* 마우스 환경: 버튼 숨기고 힌트 표시 */
+@media (pointer: fine) {
+  .new-trip-modal-submit { display: none; }
+  .new-trip-modal-hint   { display: block; }
+}
+
+/* 터치 환경: 버튼 표시, 힌트 숨김 */
+@media (pointer: coarse) {
+  .new-trip-modal-submit { display: block; }
+  .new-trip-modal-hint   { display: none; }
+}
+
+.new-trip-modal-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: rgba(17, 24, 39, 0.35);
+  text-align: center;
+}
+
+/* ==========================================================
+   반응형
+   ========================================================== */
+
+/* 태블릿 (≤ 1024px): 카드 약간 축소 */
+@media (max-width: 1024px) {
+  .hero.dashboard-active {
+    padding-bottom: clamp(12px, 2vh, 24px);
+  }
+
+  .trip-card-track {
+    height: clamp(180px, 28vh, 240px);
+  }
+
+  .trip-card {
+    width: clamp(140px, 16vw, 180px);
+    height: clamp(180px, 28vh, 240px);
+  }
+}
+
+/* 모바일 (≤ 768px): 카드만 표시 */
+@media (max-width: 768px) {
+  .hero-label {
+    display: none;
+  }
+
+  .hero h1 {
+    display: none;
+  }
+
+  .hero p {
+    display: none;
+  }
+
+  .home-dashboard-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(12px, 2vh, 16px);
+  }
+
+  .home-dash {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(12px, 2vh, 16px);
+    align-items: center;
+  }
+
+  .trip-card {
+    width: clamp(140px, 22vw, 200px);
+    height: clamp(200px, 55vh, 340px);
+    border-radius: clamp(14px, 3vw, 20px);
+    padding: clamp(16px, 2.5vw, 20px) clamp(12px, 2vw, 16px);
+  }
+
+  .trip-card-track {
+    position: relative;
+    width: 100%;
+    height: clamp(200px, 55vh, 340px);
+    overflow: visible;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .home-greeting {
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .new-trip-modal {
+    padding: 24px 24px 20px;
+    border-radius: 20px;
+    gap: 14px;
+    max-height: 70vh;
+    margin-top: clamp(-200px, -40vh, -100px);
+  }
+
+  .new-trip-modal-title {
+    font-size: 16px;
+  }
+}
+
+/* 소형 모바일 (≤ 480px): 카드 더 축소 */
+@media (max-width: 480px) {
+  .trip-card {
+    width: clamp(110px, 13vw, 140px);
+    height: clamp(150px, 23vh, 200px);
+    border-radius: clamp(12px, 2vw, 16px);
+    padding: clamp(12px, 1.5vw, 14px) clamp(10px, 1.2vw, 12px) clamp(10px, 1.2vw, 12px);
+  }
+
+  .trip-card-track {
+    height: clamp(150px, 23vh, 200px);
+  }
+
+  .trip-card-new-plus {
+    font-size: clamp(24px, 5vw, 32px);
+  }
+
+  .trip-card-new-label {
+    font-size: clamp(9px, 1.5vw, 11px);
+  }
+
+  .trip-card-title {
+    font-size: clamp(11px, 1.3vw, 13px);
+    margin-top: 6px;
+  }
+
+  .trip-card-map-icon svg {
+    width: clamp(18px, 4vw, 24px);
+    height: clamp(18px, 4vw, 24px);
+  }
+}
+
+/* 가로 모드 (≤ 896px landscape): 텍스트와 카드 모두 표시 */
+@media (max-width: 896px) and (orientation: landscape) {
+  .hero.dashboard-active {
+    padding-bottom: clamp(8px, 1vh, 12px);
+    justify-content: flex-start;
+  }
+
+  .hero.dashboard-active .hero-label,
+  .hero.dashboard-active h1,
+  .hero.dashboard-active p {
+    display: block;
+  }
+
+  .hero h1 {
+    font-size: clamp(24px, 4vh, 32px);
+    margin: 8px 0 0 0;
+  }
+
+  .hero p {
+    display: none;
+  }
+
+  .home-dashboard-wrapper {
+    position: relative;
+    margin-top: clamp(8px, 1.5vh, 12px);
+  }
+
+  .trip-card {
+    height: clamp(120px, 20vh, 160px);
+    width: clamp(90px, 12vw, 130px);
+    border-radius: clamp(12px, 2vh, 16px);
+    padding: clamp(12px, 1.5vh, 14px) clamp(10px, 1.2vw, 12px) clamp(10px, 1.2vw, 12px);
+  }
+
+  .trip-card-track {
+    height: clamp(120px, 20vh, 160px);
+  }
+
+  .trip-card-title {
+    font-size: clamp(10px, 1.2vw, 12px);
+    margin-top: 6px;
+  }
+
+  .trip-card-map-icon svg {
+    width: clamp(16px, 2.5vw, 20px);
+    height: clamp(16px, 2.5vw, 20px);
+  }
+}
