@@ -5,6 +5,11 @@ default.conf
 nginx.conf
 certified.conf
 
+# VS Code 설정 및 로컬 환경 파일 무시
+.vscode/
+*.code-workspace
+.history/
+
 # ==============================================================================
 # 2. 가상 환경 및 환경 변수 (Virtual Environments & ENV Variables)
 # ==============================================================================
