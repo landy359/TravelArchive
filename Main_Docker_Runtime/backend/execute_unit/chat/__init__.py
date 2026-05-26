@@ -25,3 +25,8 @@ class ChatUnit:
     async def send_temp_message(temp_session_id: str, message: str) -> Any:
         """비로그인 임시채팅. DB/Redis 저장 없음."""
         return await ChatService.send_temp_message(temp_session_id, message)
+
+    @staticmethod
+    async def select_route(session_id: str, user_id: str, choice: str,
+                           redis: Any, manager: Any) -> dict:
+        return await ChatService.select_route(session_id, user_id, choice, redis, manager)

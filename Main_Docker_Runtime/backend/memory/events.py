@@ -305,3 +305,12 @@ class LoadUserSessionTopicsEvent:
     user_id:            str
     exclude_session_id: str
     future:             asyncio.Future
+
+@dataclass
+class SaveFileRecordsEvent:
+    """파일 업로드 후 session_files에 영속화 (fire-and-forget)."""
+    session_id:   str
+    message_id:   str
+    uploader_id:  str
+    safe_names:   list  # UUID 안전명 (디스크 저장명)
+    original_names: list  # 원본 파일명 (표시용)

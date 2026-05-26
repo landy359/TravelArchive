@@ -38,19 +38,45 @@ class TripMarkerWidget:
     # get_for_front 구현 가이드:
     #   - _state 는 List[T_MK_Item] (marker_id, place_info 포함 전체 정보)
     #   - 프론트 마커 카드/패널이 필요로 하는 필드만 추려서 반환
-    #   - 예: [{"marker_id": .., "name": .., "lat": .., "lon": ..}, ...]
+    #   - 예: [{"marker_id": .., "name": .., "lat": .., "lng": ..}, ...]
     #
     # set_for_front 구현 가이드:
     #   - 프론트(또는 Facade)에서 넘어온 마커 데이터를 T_MK_Item 으로 변환
     #   - set_for_llm() 재사용 가능
 
     def get_for_front(self) -> list:
-        # TODO: 마커 위젯 표출 형식으로 변환 구현
-        return self._state
+        return [
+            {
+                "marker_id": item.marker_id,
+                "name": item.place_info.name,
+                "address_road": item.place_info.address_road,
+                "lat": item.place_info.lat,
+                "lng": item.place_info.lng,
+                "description": item.place_info.description,
+                "category": item.place_info.category,
+            }
+            for item in self._state
+        ]
 
     def set_for_front(self, value) -> None:
-        # TODO: 마커 위젯 입력 형식 → T_MK_Item 변환 구현
-        self.set_for_llm(value)
+        from ...router.protocol import T_MK_Item, PlaceInfo
+        if not value:
+            self._state = []
+            return
+        self._state = [
+            T_MK_Item(
+                marker_id=item.get("marker_id", ""),
+                place_info=PlaceInfo(
+                    name=item.get("name", ""),
+                    address_road=item.get("address_road", ""),
+                    lat=float(item.get("lat", 0.0)),
+                    lng=float(item.get("lng", 0.0)),
+                    description=item.get("description", ""),
+                    category=item.get("category", ""),
+                )
+            )
+            for item in value
+        ]
 
     # ── Redis 경로 ─────────────────────────────────────────────────
 

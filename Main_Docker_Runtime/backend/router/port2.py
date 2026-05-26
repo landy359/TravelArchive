@@ -4,9 +4,10 @@ P2 포트 — 양방향 (Port2 ↔ Core)
 """
 
 from __future__ import annotations
+import re
 from typing import TYPE_CHECKING
 
-from .protocol import PC2, _mk_to_list, _pn_to_list
+from .protocol import PC2, _mk_to_list, _pn_to_list, T_MK_Item, T_PN_Item
 from ..execute_unit.widget.widget_trip_select import TripSelectWidget
 from ..execute_unit.widget.widget_trip_clander import TripClanderWidget
 from ..execute_unit.widget.widget_trip_map import TripMapWidget
@@ -15,6 +16,50 @@ from ..execute_unit.widget.widget_trip_plan import TripPlanWidget
 
 if TYPE_CHECKING:
     from .core import Core
+
+_CD_RE = re.compile(r'^\d{6}$')
+
+
+def _guard_t_sl(new_val: str, buf: str) -> str:
+    """빈 문자열이면 버퍼 값 유지."""
+    return new_val if new_val.strip() else buf
+
+
+def _guard_t_cd(new_val: list, buf: list) -> list:
+    """YYMMDD 형식 아닌 항목 제거. 유효 항목이 없고 버퍼가 있으면 버퍼 유지."""
+    valid = [v for v in new_val if isinstance(v, str) and _CD_RE.match(v)]
+    return valid if (valid or not buf) else buf
+
+
+def _guard_t_mp(new_val: list, buf: list) -> list:
+    """빈 문자열 항목 제거. 유효 항목 없고 버퍼 있으면 버퍼 유지."""
+    valid = [v for v in new_val if isinstance(v, str) and v.strip()]
+    return valid if (valid or not buf) else buf
+
+
+def _guard_t_mk(new_val: list, buf: list) -> list:
+    """marker_id·name 모두 비어 있는 가비지 항목 제거. 결과 없고 버퍼 있으면 버퍼 유지."""
+    valid = [
+        item for item in new_val
+        if isinstance(item, T_MK_Item)
+        and (item.marker_id.strip() or item.place_info.name.strip())
+    ]
+    return valid if (valid or not buf) else buf
+
+
+def _guard_t_pn(new_val: list, buf: list) -> list:
+    """place 빈 항목 제거 후 빈 행 제거. 유효 행 없고 버퍼 있으면 버퍼 유지."""
+    valid_rows = []
+    for row in new_val:
+        if not isinstance(row, list):
+            continue
+        valid_items = [
+            item for item in row
+            if isinstance(item, T_PN_Item) and item.place.strip()
+        ]
+        if valid_items:
+            valid_rows.append(valid_items)
+    return valid_rows if (valid_rows or not buf) else buf
 
 
 class Port2:
@@ -32,11 +77,13 @@ class Port2:
         self._t_mp.set_for_llm(widget_state.get("t_mp", []))
         self._t_mk.set_for_llm(widget_state.get("t_mk", []))
         self._t_pn.set_for_llm(widget_state.get("t_pn", []))
+        self._buf_pc2: PC2 | None = None
         self.last_response: str = ""
         self.updated_widget_state: dict = {}
 
     async def on_user_message(self) -> None:
-        await self.core.receive_from_p2(self._build_pc2())
+        self._buf_pc2 = self._build_pc2()
+        await self.core.receive_from_p2(self._buf_pc2)
 
     def _build_pc2(self) -> PC2:
         return PC2(
@@ -48,19 +95,27 @@ class Port2:
             T_PN=self._t_pn.get_for_llm(),
         )
 
-    async def receive_from_core(self, pc2: PC2) -> None:
+    async def receive_from_core(self, pc2: PC2, sl_ctx: dict | None = None) -> None:
+        buf = self._buf_pc2
+        b_sl = buf.T_SL if buf else ""
+        b_cd = buf.T_CD if buf else []
+        b_mp = buf.T_MP if buf else []
+        b_mk = buf.T_MK if buf else []
+        b_pn = buf.T_PN if buf else []
+
         self.last_response = pc2.CC
-        self._t_sl.set_for_llm(pc2.T_SL)
-        self._t_cd.set_for_llm(pc2.T_CD)
-        self._t_mp.set_for_llm(pc2.T_MP)
-        self._t_mk.set_for_llm(pc2.T_MK)
-        self._t_pn.set_for_llm(pc2.T_PN)
+        self._t_sl.set_for_llm(_guard_t_sl(pc2.T_SL, b_sl))
+        self._t_cd.set_for_llm(_guard_t_cd(pc2.T_CD, b_cd))
+        self._t_mp.set_for_llm(_guard_t_mp(pc2.T_MP, b_mp))
+        self._t_mk.set_for_llm(_guard_t_mk(pc2.T_MK, b_mk))
+        self._t_pn.set_for_llm(_guard_t_pn(pc2.T_PN, b_pn))
         self.updated_widget_state = {
             "t_sl": self._t_sl.get_for_llm(),
             "t_cd": self._t_cd.get_for_llm(),
             "t_mp": self._t_mp.get_for_llm(),
             "t_mk": _mk_to_list(self._t_mk.get_for_llm()),
             "t_pn": _pn_to_list(self._t_pn.get_for_llm()),
+            "_sl_ctx": sl_ctx or {},
         }
 
     async def on_error(self, msg: str) -> None:

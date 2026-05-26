@@ -114,7 +114,7 @@ class SessionContainer:
         await self._absorb_if_needed()
 
     async def process_user_input(self, text: str) -> str:
-        """임시 세션 전용: LLM 응답 생성 후 커밋."""
+        """LLM 응답 생성 후 커밋. redis가 None이면 in-memory only (임시 세션)."""
         bot_text = await self._generate(text)
         await self.commit_turn(user_text=text, bot_text=bot_text)
         return bot_text

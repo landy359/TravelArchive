@@ -23,11 +23,9 @@ class TripMapWidget:
     # 달라질 경우 아래 두 메서드에서 변환 구현.
 
     def get_for_front(self) -> List[str]:
-        # TODO: 지도 위젯 표출 형식으로 변환이 필요하면 여기서 구현
         return self._state
 
     def set_for_front(self, value: List[str]) -> None:
-        # TODO: 지도 위젯 입력 형식 → _state 변환이 필요하면 여기서 구현
         self._state = list(value) if value else []
 
     # ── Redis 경로 ─────────────────────────────────────────────────

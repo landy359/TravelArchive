@@ -45,6 +45,7 @@ from .events import (
     MoveSessionTripEvent,
     RefreshRequestEvent,
     RemoveNonMasterEvent,
+    SaveFileRecordsEvent,
     SaveMessageEvent,
     SaveNotificationEvent,
     SaveSettingsEvent,
@@ -183,6 +184,7 @@ class EventHandler:
             case DismissNotifEvent(): await self._on_dismiss_notif(event)
             case ClearNotifsEvent(): await self._on_clear_notifs(event)
             case LoadUserSessionTopicsEvent(): await self._on_load_user_session_topics(event)
+            case SaveFileRecordsEvent(): await self._on_save_file_records(event)
             case _: print(f"[EventHandler] 알 수 없는 이벤트: {type(event)}")
 
     async def _on_login(self, e: LoginEvent) -> None:
@@ -447,6 +449,12 @@ class EventHandler:
                 await self._redis.delete(f"session:{e.session_id}:messages")
             except Exception as ex2:
                 print(f"[EventHandler] save_message 실패 후 캐시 무효화 실패 {e.session_id}: {ex2!r}")
+
+    async def _on_save_file_records(self, e: SaveFileRecordsEvent) -> None:
+        try:
+            await Loader.save_file_records(self._pg, e.session_id, e.message_id, e.uploader_id, e.safe_names, e.original_names)
+        except Exception as ex:
+            print(f"[EventHandler] save_file_records 실패 {e.session_id}: {ex!r}")
 
     async def _on_save_notification(self, e: SaveNotificationEvent) -> None:
         try:

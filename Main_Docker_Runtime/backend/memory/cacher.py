@@ -318,11 +318,31 @@ class Cacher:
 
     @staticmethod
     async def save_session_widgets(session_id: str, data: dict, redis) -> None:
-        await redis.set_json(f"session:{session_id}:widgets", data, SESSION_TTL)
+        from ..execute_unit.widget.widget_trip_clander import TripClanderWidget
+        from ..execute_unit.widget.widget_trip_select import TripSelectWidget
+        from ..execute_unit.widget.widget_trip_map import TripMapWidget
+        from ..execute_unit.widget.widget_trip_marker import TripMarkerWidget
+        from ..execute_unit.widget.widget_trip_plan import TripPlanWidget
+        await TripClanderWidget.save_to_redis(session_id, redis, data.get("t_cd", []))
+        await TripSelectWidget.save_to_redis(session_id, redis, data.get("t_sl", ""))
+        await TripMapWidget.save_to_redis(session_id, redis, data.get("t_mp", []))
+        await TripMarkerWidget.save_to_redis(session_id, redis, data.get("t_mk", []))
+        await TripPlanWidget.save_to_redis(session_id, redis, data.get("t_pn", []))
 
     @staticmethod
     async def get_session_widgets(session_id: str, redis) -> dict:
-        return await redis.get_json(f"session:{session_id}:widgets") or {}
+        from ..execute_unit.widget.widget_trip_clander import TripClanderWidget
+        from ..execute_unit.widget.widget_trip_select import TripSelectWidget
+        from ..execute_unit.widget.widget_trip_map import TripMapWidget
+        from ..execute_unit.widget.widget_trip_marker import TripMarkerWidget
+        from ..execute_unit.widget.widget_trip_plan import TripPlanWidget
+        return {
+            "t_cd": await TripClanderWidget.load_from_redis(session_id, redis),
+            "t_sl": await TripSelectWidget.load_from_redis(session_id, redis),
+            "t_mp": await TripMapWidget.load_from_redis(session_id, redis),
+            "t_mk": await TripMarkerWidget.load_from_redis(session_id, redis),
+            "t_pn": await TripPlanWidget.load_from_redis(session_id, redis),
+        }
 
     @staticmethod
     async def mark_dirty_widget(session_id: str, widget_type: str, redis) -> None:
@@ -622,3 +642,36 @@ class Cacher:
             and not n.get("is_read")
             for n in notifs
         )
+
+    # ── 키워드 선호도 백 (per-user) ──────────────────────────────
+
+    @staticmethod
+    async def get_kw_bag(user_id: str, redis) -> dict:
+        data = await redis.get_json(f"user:{user_id}:kw_bag")
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    async def save_kw_bag(user_id: str, bag: dict, redis, ttl: int) -> None:
+        await redis.set_json(f"user:{user_id}:kw_bag", bag, ttl)
+
+    # ── 선택지 컨텍스트 (per-session) ────────────────────────────
+
+    @staticmethod
+    async def get_sl_ctx(session_id: str, redis) -> dict:
+        data = await redis.get_json(f"session:{session_id}:sl_ctx")
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    async def save_sl_ctx(session_id: str, ctx: dict, redis, ttl: int) -> None:
+        await redis.set_json(f"session:{session_id}:sl_ctx", ctx, ttl)
+
+    # ── 보류 위젯 (per-session) ──────────────────────────────────
+
+    @staticmethod
+    async def get_pending_widgets(session_id: str, redis) -> dict:
+        data = await redis.get_json(f"session:{session_id}:pending_widgets")
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    async def save_pending_widgets(session_id: str, widgets: dict, redis, ttl: int) -> None:
+        await redis.set_json(f"session:{session_id}:pending_widgets", widgets, ttl)

@@ -51,6 +51,22 @@ class WidgetUnit:
     async def set_t_pn(session_id: str, redis: Any, value: list) -> None:
         await TripPlanWidget.save_to_redis(session_id, redis, value)
 
+    # ── 프론트 전용 (포맷 변환 포함) ─────────────────────────────
+
+    @staticmethod
+    async def get_t_sl_front(session_id: str, redis: Any) -> dict:
+        raw = await TripSelectWidget.load_from_redis(session_id, redis)
+        widget = TripSelectWidget()
+        widget.set_for_llm(raw)
+        return widget.get_for_front()
+
+    @staticmethod
+    async def get_t_pn_front(session_id: str, redis: Any) -> list:
+        raw = await TripPlanWidget.load_from_redis(session_id, redis)
+        widget = TripPlanWidget()
+        widget.set_for_llm(raw)
+        return widget.get_for_front()
+
     # ── 구버전 호환 (facade 기존 호출명) ──────────────────────────
 
     @staticmethod

@@ -1,6 +1,6 @@
 """
 [역할] Perplexity 검색 노드.
-       QUST를 받아 PPL 필드(순수 문자열)를 채운 뒤 반환한다.
+       QUST를 받아 PPL·route_keywords 필드를 채운 뒤 반환한다.
 
 ────────────────────────────────────────────────
 입력 (QUST에서 읽는 필드)
@@ -8,11 +8,13 @@
   qust.SSN_TPC  : 세션 주제 ("제주도 3박4일 여행" 등)
   qust.T_CD     : 날짜 범위 ["YYMMDD", ...]
   qust.CC       : 현재 사용자 메시지
+  qust.kw_hint  : 사용자 선호 키워드 힌트 (keyword_scorer에서 주입)
 
 ────────────────────────────────────────────────
 출력 (QUST에 채우는 필드)
 ────────────────────────────────────────────────
-  qust.PPL : str   — Perplexity가 반환한 경로 후보 텍스트 (plain text)
+  qust.PPL           : str  — Perplexity가 반환한 경로 후보 텍스트 (plain text)
+  qust.route_keywords: dict — {route_num: {name: str, keywords: list[str]}}
 ────────────────────────────────────────────────
 """
 
@@ -54,7 +56,9 @@ Output rules:
 - No citation numbers like [1] or [2]
 - No URLs or links
 - List exactly 5 route candidates, numbered 1 to 5
-- Each candidate: route name, key stops in order, one sentence on why travelers choose it
+- Each candidate: route name followed by colon, key stops in order, one sentence on why travelers choose it
+- After the description, add a keyword line: "키워드: kw1, kw2, kw3, kw4, kw5" (exactly 5 Korean keywords per route)
+- If preferred keywords are provided, include at least 2 of them per candidate
 
 Focus on:
 - Actual traveler behavior (blogs, reviews, community posts) for the region and season
@@ -63,6 +67,11 @@ Focus on:
 
 Answer in Korean.
 """.strip()
+
+# 경로별 키워드 파싱 패턴 (모듈 로드 시 컴파일)
+_RE_ROUTE_BLOCK = re.compile(r'^\d+\.', re.MULTILINE)
+_RE_ROUTE_NAME  = re.compile(r'^\d+\.\s+(.+?)[:：]')
+_RE_KEYWORDS    = re.compile(r'키워드:\s*(.+)')
 
 _USER_PREFIX = "다음 장소 목록과 날씨 데이터를 바탕으로 실제 여행자들이 선택하는 경로 후보를 5개 뽑아라."
 
@@ -103,6 +112,9 @@ class PPL:
         if qust.CC:
             parts.append(f"사용자 요청: {qust.CC}")
 
+        if qust.kw_hint:
+            parts.append(f"선호 키워드 (각 경로에 가능한 한 포함): {', '.join(qust.kw_hint)}")
+
         # T_MK — 관심 마커 (PC3에서 사용자가 찍은 장소)
         if qust.T_MK:
             names = [mk.place_info.name for mk in qust.T_MK if mk.place_info.name]
@@ -140,6 +152,26 @@ class PPL:
         return "\n\n".join(parts)
 
     @staticmethod
+    def _parse_route_data(text: str) -> dict:
+        """경로 번호별 {name, keywords} 추출. 키워드 줄이 없는 블록은 건너뜀."""
+        route_data = {}
+        blocks = re.split(r'\n(?=\d+\.)', text.strip())
+        for block in blocks:
+            name_m = _RE_ROUTE_NAME.match(block.strip())
+            kw_m   = _RE_KEYWORDS.search(block)
+            if not name_m or not kw_m:
+                continue
+            # 경로 번호 추출
+            num_str = block.strip().split('.', 1)[0]
+            try:
+                num = int(num_str)
+            except ValueError:
+                continue
+            keywords = [kw.strip() for kw in kw_m.group(1).split(',') if kw.strip()]
+            route_data[num] = {"name": name_m.group(1).strip(), "keywords": keywords}
+        return route_data
+
+    @staticmethod
     def _clean(text: str) -> str:
         if not text:
             return text
@@ -156,7 +188,7 @@ class PPL:
 
     async def run(self, qust: "QUST") -> "QUST":
         if not self._api_key:
-            raise RuntimeError("PERPLEXITY_API_KEY not set")
+            return qust
 
         client = _get_client(self._api_key)
         prompt = self._build_prompt(qust)
@@ -179,5 +211,6 @@ class PPL:
             return qust
 
         content = response.choices[0].message.content or ""
+        qust.route_keywords = self._parse_route_data(content)
         qust.PPL = self._clean(content)
         return qust

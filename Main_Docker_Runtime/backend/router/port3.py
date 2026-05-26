@@ -2,7 +2,7 @@
 port3.py
 P3 포트 — 양방향 (Port3 ↔ Core)
 
-흐름: PC3 → QUST → sDB.run → dDB.run → (PPL 미구현) → LLM → PC3
+흐름: PC3 → QUST → [sDB → dDB → PPL] → LLM → PC3
 """
 
 from __future__ import annotations
@@ -11,31 +11,27 @@ import json
 from typing import TYPE_CHECKING, List
 
 from .protocol import PC3, QUST, _mk_from_list, _pn_from_list
+from ..kernel.keyword_scorer import top_n_keywords, compute_sl_ctx, KW_BAG_HINT_N
 
 if TYPE_CHECKING:
     from .core import Core
 
 
-_db_connector = None
-
-
-def _get_db_connector():
-    global _db_connector
-    if _db_connector is None:
-        from ..kernel.db_connector import DBConnector
-        _db_connector = DBConnector()
-    return _db_connector
-
-
 class Port3:
 
-    def __init__(self, core: "Core") -> None:
-        self.core = core
+    def __init__(self, core: "Core", user_id: str = "", kw_bag: dict | None = None) -> None:
+        self.core      = core
+        self._user_id  = user_id
+        self._kw_bag   = kw_bag or {}
+        from ..kernel.db_connector import DBConnector
         from ..kernel.sdb import SDB
         from ..kernel.ddb import DDB
-        connector = _get_db_connector()
-        self.sdb = SDB(connector)
-        self.ddb = DDB(connector)
+        from ..kernel.ppl import PPL
+        _connector = DBConnector()
+        self.sdb = SDB(_connector)
+        self.ddb = DDB(_connector)
+        self.ppl = PPL()
+        self._pipeline = [self.sdb, self.ddb, self.ppl]
 
     # ────────────────────────────────────────────────
     # Core ↔ Port3 인터페이스
@@ -46,6 +42,8 @@ class Port3:
         await self.core.receive_from_p3(pc3_result)
 
     async def _process(self, pc3: PC3) -> PC3:
+        kw_hint = top_n_keywords(self._kw_bag, KW_BAG_HINT_N)
+
         qust = QUST(
             USR_ANAL=pc3.USR_ANAL,
             SSN_TPC=pc3.SSN_TPC,
@@ -56,17 +54,19 @@ class Port3:
             T_MP=pc3.T_MP or [],
             T_MK=pc3.T_MK or [],
             T_PN=pc3.T_PN or [],
+            kw_hint=kw_hint,
         )
-        qust = await self.sdb.run(qust)
-        qust = await self.ddb.run(qust)
-        # PPL — 미구현
-        return await self._call_llm(qust)
+        for node in self._pipeline:
+            qust = await node.run(qust)
+
+        sl_ctx = compute_sl_ctx(qust.route_keywords, self._kw_bag) if qust.route_keywords else None
+        return await self._call_llm(qust, sl_ctx=sl_ctx)
 
     # ────────────────────────────────────────────────
     # LLM 어댑터 (임시 구현)
     # ────────────────────────────────────────────────
 
-    async def _call_llm(self, qust: QUST) -> PC3:
+    async def _call_llm(self, qust: QUST, sl_ctx: dict | None = None) -> PC3:
         from setting.config import LLM_MODEL_GENERATION, GENERATION_API_KEY, ROUTER_PROMPT
         from ..kernel.llm import LLM
 
@@ -83,7 +83,43 @@ class Port3:
             cc=qust.CC,
         )
 
+        extra: list[str] = []
+        if qust.T_CD:
+            dates = " ~ ".join(
+                f"20{d[:2]}년 {int(d[2:4])}월 {int(d[4:6])}일"
+                for d in qust.T_CD
+            )
+            extra.append(f"[여행 날짜]: {dates}")
+        if qust.sDB:
+            lines = [
+                f"{p.name} ({p.main_category}) / {p.region}"
+                for p in qust.sDB
+            ]
+            extra.append("[방문 가능한 장소 DB]:\n" + "\n".join(lines))
+        if qust.dDB:
+            lines = [
+                f"{w.location} {w.forecast_time}시: {w.summary}"
+                + (f", 강수확률 {w.rain_prob}%" if w.rain_prob else "")
+                + f", 기온 {w.temperature}°C"
+                for w in qust.dDB
+            ]
+            extra.append("[날씨 예보]:\n" + "\n".join(lines))
+        if qust.PPL:
+            extra.append(f"[Perplexity 경로 참고]:\n{qust.PPL}")
+        if sl_ctx:
+            extra.append(
+                f"[선택지 제안]: 두 여행 경로의 키워드 점수가 비슷합니다.\n"
+                f"A안: {sl_ctx['A']['name']} / B안: {sl_ctx['B']['name']}\n"
+                f'T_SL 필드를 "A안: {sl_ctx["A"]["name"]} | B안: {sl_ctx["B"]["name"]}" 로 채워주세요.'
+            )
+        elif qust.T_SL:
+            extra.append(f"[현재 선택 대기 중]: {qust.T_SL}")
+        if extra:
+            prompt += "\n\n" + "\n\n".join(extra)
+
+        print("\n===== [PORT3 LLM PROMPT] =====\n" + prompt + "\n==============================\n", flush=True)
         raw = await LLM(model_name=LLM_MODEL_GENERATION, api_key=GENERATION_API_KEY).ask(prompt)
+        print("\n===== [PORT3 LLM RAW] =====\n" + raw + "\n===========================\n", flush=True)
 
         stripped = raw.strip()
         if stripped.startswith("```"):
@@ -106,6 +142,7 @@ class Port3:
             T_MP=data["T_MP"] if "T_MP" in data else None,
             T_MK=_mk_from_list(data["T_MK"]) if "T_MK" in data else None,
             T_PN=_pn_from_list(data["T_PN"]) if "T_PN" in data else None,
+            SL_CTX=sl_ctx or {},
         )
 
     async def _call_ppl(self, query: str) -> str:

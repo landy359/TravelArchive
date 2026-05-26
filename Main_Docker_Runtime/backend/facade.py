@@ -116,6 +116,10 @@ class TripRangeRequest(BaseModel):
     ranges: List[Dict]
 
 
+class TripPlanRequest(BaseModel):
+    plan: List[List[Dict]]
+
+
 class TripCreateRequest(BaseModel):
     title: str
     color: Optional[str] = None
@@ -532,6 +536,45 @@ async def save_trip_range(session_id: str, req: TripRangeRequest, request: Reque
 @app.get("/api/sessions/{session_id}/trip_range")
 async def get_trip_range(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
     return {"ranges": await WidgetUnit.get_trip_range(session_id, request.app.state.redis)}
+
+
+@app.get("/api/sessions/{session_id}/trip_select")
+async def get_trip_select(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
+    return await WidgetUnit.get_t_sl_front(session_id, request.app.state.redis)
+
+
+class SelectRouteRequest(BaseModel):
+    choice: str  # "A" or "B"
+
+
+@app.post("/api/sessions/{session_id}/select")
+async def post_trip_select(
+    session_id: str,
+    body: SelectRouteRequest,
+    request: Request,
+    user_id: str = Depends(_require_session_member),
+):
+    try:
+        return await ChatUnit.select_route(
+            session_id, user_id, body.choice,
+            request.app.state.redis, request.app.state.manager,
+        )
+    except ValueError as e:
+        err = str(e)
+        if err == "sl_ctx_not_found":
+            raise HTTPException(status_code=404, detail="선택 컨텍스트가 없거나 만료되었습니다")
+        raise HTTPException(status_code=400, detail="유효하지 않은 선택입니다 (A 또는 B)")
+
+
+@app.get("/api/sessions/{session_id}/trip_plan")
+async def get_trip_plan(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
+    return {"plan": await WidgetUnit.get_t_pn_front(session_id, request.app.state.redis)}
+
+
+@app.put("/api/sessions/{session_id}/trip_plan")
+async def save_trip_plan(session_id: str, req: TripPlanRequest, request: Request, user_id: str = Depends(get_current_user)):
+    await WidgetUnit.set_t_pn(session_id, request.app.state.redis, req.plan)
+    return {"success": True}
 
 
 @app.get("/api/notifications")

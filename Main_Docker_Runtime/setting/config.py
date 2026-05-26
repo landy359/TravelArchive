@@ -45,11 +45,12 @@ ROUTER_PROMPT = (
     '  "T_SL": "<선택지 문자열, 없으면 빈 문자열>",\n'
     '  "T_CD": ["YYMMDD", ...],\n'
     '  "T_MP": ["폴리곤 노드 ID", ...],\n'
-    '  "T_MK": [{{"marker_id":"...","place_info":{{"name":"","address_road":"","lat":0.0,"lon":0.0,"description":"","category":""}}}}],\n'
-    '  "T_PN": [[{{"date":"YYMMDD","order":0,"place":"장소명","place_info":{{"name":"","address_road":"","lat":0.0,"lon":0.0,"description":"","category":""}}}}]]\n'
+    '  "T_MK": [{{"marker_id":"...","place_info":{{"name":"","address_road":"","lat":0.0,"lng":0.0,"description":"","category":""}}}}],\n'
+    '  "T_PN": [[{{"date":"YYMMDD","order":0,"place":"장소명","place_info":{{"name":"","address_road":"","lat":0.0,"lng":0.0,"description":"","category":""}}}}]]\n'
     "}}\n"
     "\n"
-    "변경이 없는 위젯 필드는 빈 값(빈 문자열 또는 빈 배열)으로 두면 이전 상태가 유지된다.\n"
+    "변경이 없는 위젯 필드는 JSON에서 해당 키를 아예 생략하면 이전 상태가 유지된다.\n"
+    "T_CD/T_MP/T_MK/T_PN에 빈 배열([])을 넣으면 해당 위젯이 초기화된다.\n"
     "\n"
     "[개인화 정보]: {usr_anal}\n"
     "[현재 대화 주제]: {ssn_tpc}\n"

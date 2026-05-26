@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import base64
 import json
 import os
 import re as _re
@@ -28,17 +29,13 @@ _TEMP_SESSION_TTL = 3600  # 1시간 미사용 시 제거
 _MAX_TEMP_SESSIONS = 200
 _BACKGROUND_TASKS: set[asyncio.Task] = set()  # create_task GC 방지
 
-_ALLOWED_MIME_TYPES = {
-    "image/jpeg", "image/png", "image/gif", "image/webp",
-    "application/pdf",
-    "text/plain",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "video/mp4", "video/quicktime",
-    "audio/mpeg", "audio/wav",
-}
+_ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_EXT_TO_MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
+
+
+def _read_image_payload(img_path: str, mime: str) -> tuple[str, str]:
+    with open(img_path, "rb") as f:
+        return base64.b64encode(f.read()).decode(), mime
 _MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
@@ -293,12 +290,28 @@ class ChatService:
             ChatService._push_unviewed_user_notices(session_id, other_ids, sender_name, message)
 
         if not is_team:
-            bot_query = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
-            return await ChatService._stream_bot_response(session_id, bot_query, user_id, redis, manager)
+            # @BOT 제거 후 @PLAN 여부로 파이프라인 분기
+            content = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
+            plan_m  = _re.match(r'^@PLAN\s*([\s\S]*)', content, _re.IGNORECASE)
+            if plan_m:
+                query = plan_m.group(1).strip()
+                return await ChatService._stream_bot_response(session_id, query, user_id, redis, manager)
+            return await ChatService._stream_simple_bot_response(session_id, content, user_id, redis, manager)
 
+        # 팀 세션: @PLAN [query] (BOT 없이도 PLAN은 봇을 포함)
+        plan_msg = _re.match(r'^@PLAN\s*([\s\S]*)', message, _re.IGNORECASE)
+        if plan_msg:
+            query = plan_msg.group(1).strip()
+            return await ChatService._stream_bot_response(session_id, query, user_id, redis, manager)
+
+        # 팀 세션: @BOT @PLAN or @BOT only
         bot_match = _re.match(r'^@BOT\s+([\s\S]+)', message, _re.IGNORECASE)
         if bot_match:
-            return await ChatService._stream_bot_response(session_id, bot_match.group(1).strip(), user_id, redis, manager)
+            content  = bot_match.group(1).strip()
+            plan_m   = _re.match(r'^@PLAN\s*([\s\S]*)', content, _re.IGNORECASE)
+            if plan_m:
+                return await ChatService._stream_bot_response(session_id, plan_m.group(1).strip(), user_id, redis, manager)
+            return await ChatService._stream_simple_bot_response(session_id, content, user_id, redis, manager)
 
         _spawn_task(ChatService._run_ingest(session_id, user_id, message, redis, manager))
 
@@ -405,9 +418,37 @@ class ChatService:
         async def _stream():
             bot_text = "죄송합니다, 응답을 생성할 수 없습니다."
             try:
-                container = await ChatService._get_container(session_id, triggering_user_id, redis)
+                from ...kernel.keyword_scorer import SL_CTX_TTL, PENDING_TTL
                 from ...router.core import Core
-                bot_text, new_widgets = await Core.run(current=query, **container.router_context())
+                container = await ChatService._get_container(session_id, triggering_user_id, redis)
+                kw_bag = await Cacher.get_kw_bag(triggering_user_id, redis)
+                bot_text, new_widgets = await Core.run(
+                    current=query,
+                    user_id=triggering_user_id,
+                    kw_bag=kw_bag,
+                    **container.router_context(),
+                )
+
+                # sl_ctx는 Redis에 별도 저장; widget_state에는 포함하지 않음
+                sl_ctx = new_widgets.pop("_sl_ctx", {})
+                t_sl   = new_widgets.get("t_sl", "")
+
+                if t_sl and sl_ctx:
+                    # T_SL 게이트 활성: t_cd/t_mp/t_mk/t_pn을 선택 완료까지 보류
+                    pending = {
+                        "t_cd": new_widgets.get("t_cd", []),
+                        "t_mp": new_widgets.get("t_mp", []),
+                        "t_mk": new_widgets.get("t_mk", []),
+                        "t_pn": new_widgets.get("t_pn", []),
+                    }
+                    await Cacher.save_pending_widgets(session_id, pending, redis, PENDING_TTL)
+                    await Cacher.save_sl_ctx(session_id, sl_ctx, redis, SL_CTX_TTL)
+                    prev = container.widget_state
+                    new_widgets["t_cd"] = prev.get("t_cd", [])
+                    new_widgets["t_mp"] = prev.get("t_mp", [])
+                    new_widgets["t_mk"] = prev.get("t_mk", [])
+                    new_widgets["t_pn"] = prev.get("t_pn", [])
+
                 await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=new_widgets)
                 await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
             except Exception as e:
@@ -442,6 +483,83 @@ class ChatService:
         return StreamingResponse(_stream(), media_type="text/plain")
 
     @staticmethod
+    async def _stream_simple_bot_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
+        """@PLAN 없는 일반 대화 — GENERATION_PROMPT 기반 단순 LLM 응답."""
+
+        async def _stream():
+            bot_text = "죄송합니다, 응답을 생성할 수 없습니다."
+            try:
+                container = await ChatService._get_container(session_id, triggering_user_id, redis)
+                bot_text = await container.process_user_input(query)
+                await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
+            except Exception as e:
+                print(f"[ChatService._stream_simple_bot_response] {session_id} 오류: {e}")
+
+            bot_now    = datetime.now(tz=timezone.utc)
+            bot_msg_id = "msg_" + str(uuid.uuid4())[:12]
+            await Cacher.save_message(session_id, {
+                "message_id": bot_msg_id,
+                "session_id": session_id,
+                "sender_id":  None,
+                "sender_name": "AI",
+                "sender_type": "ai",
+                "message_type": "text",
+                "content": bot_text,
+                "created_at": bot_now.isoformat(),
+            }, redis, manager)
+
+            NotifyService.push_to_session(session_id, json.dumps({
+                "type": "message",
+                "sender_id": "bot",
+                "sender_name": "AI",
+                "content": bot_text,
+                "msg_id": bot_msg_id,
+                "ts": bot_now.isoformat(),
+            }, ensure_ascii=False), exclude_user=triggering_user_id)
+
+            for char in bot_text:
+                yield char.encode()
+                await asyncio.sleep(0.02)
+
+        return StreamingResponse(_stream(), media_type="text/plain")
+
+    @staticmethod
+    async def select_route(session_id: str, user_id: str, choice: str, redis: Any, manager: Any) -> dict:
+        """T_SL 선택지 선택 처리: kw_bag 업데이트 → pending_widgets 적용 → SSE widget_update."""
+        from ...kernel.keyword_scorer import apply_selection, PENDING_TTL, SL_CTX_TTL, KW_BAG_TTL
+
+        sl_ctx = await Cacher.get_sl_ctx(session_id, redis)
+        if not sl_ctx:
+            raise ValueError("sl_ctx_not_found")
+
+        bag = await Cacher.get_kw_bag(user_id, redis)
+        new_bag = apply_selection(choice, sl_ctx, bag)
+        await Cacher.save_kw_bag(user_id, new_bag, redis, KW_BAG_TTL)
+        await Cacher.save_sl_ctx(session_id, {}, redis, SL_CTX_TTL)
+
+        pending = await Cacher.get_pending_widgets(session_id, redis)
+        container = await ChatService._get_container(session_id, user_id, redis)
+        merged = dict(container.widget_state)
+        merged.update(pending)
+        merged["t_sl"] = ""
+        merged.pop("_sl_ctx", None)
+        await container.commit_turn(widget_state=merged)
+        await Cacher.save_pending_widgets(session_id, {}, redis, 1)
+
+        NotifyService.push_to_session(session_id, json.dumps({
+            "type": "widget_update",
+            "session_id": session_id,
+            "widgets": {
+                "t_sl": "",
+                "t_cd": merged.get("t_cd", []),
+                "t_mp": merged.get("t_mp", []),
+                "t_mk": merged.get("t_mk", []),
+                "t_pn": merged.get("t_pn", []),
+            },
+        }, ensure_ascii=False))
+        return {"success": True, "choice": choice}
+
+    @staticmethod
     async def get_chat_history(session_id: str, redis: Any, manager: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]:
         msgs = await Cacher.get_messages(session_id, redis, manager, limit=limit, offset=offset)
         return {"messages": msgs}
@@ -473,7 +591,7 @@ class ChatService:
 
     @staticmethod
     async def upload_files(session_id: str, files: List[UploadFile], user_id: str, redis: Any, manager: Any) -> dict[str, Any]:
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         up_dir = os.path.join(base, "uploads", session_id, user_id)
         os.makedirs(up_dir, exist_ok=True)
 
@@ -496,16 +614,21 @@ class ChatService:
             originals.append(original)
 
         if names:
-            await ChatService._save_file_message(session_id, user_id, originals, redis, manager)
+            await ChatService._save_file_message(session_id, user_id, names, originals, redis, manager)
+            participants = await Cacher.get_session_participants(session_id, redis, manager)
+            is_team = any(p.get("user_id") != user_id and p.get("user_id") != "bot" for p in participants)
+            if not is_team:
+                _spawn_task(ChatService._respond_to_images(session_id, user_id, up_dir, names, redis, manager))
         return {"success": True, "uploaded_files": originals}
 
     @staticmethod
-    async def _save_file_message(session_id: str, user_id: str, names: list[str], redis: Any, manager: Any) -> None:
+    async def _save_file_message(session_id: str, user_id: str, safe_names: list[str], original_names: list[str], redis: Any, manager: Any) -> None:
+        from ...memory.events import SaveFileRecordsEvent
         profile = await Cacher.get_user_profile(user_id, redis, manager)
         sender_name = (profile.get("nickname") or "").strip() or "사용자"
         now = datetime.now(tz=timezone.utc)
         msg_id = "msg_" + str(uuid.uuid4())[:12]
-        content = f"[파일 첨부] {', '.join(names)}"
+        content = f"[파일 첨부] {', '.join(original_names)}"
 
         await Cacher.save_message(session_id, {
             "message_id": msg_id,
@@ -516,7 +639,17 @@ class ChatService:
             "message_type": "file",
             "content": content,
             "created_at": now.isoformat(),
+            "files": safe_names,
         }, redis, manager)
+
+        if manager is not None:
+            manager.emit(SaveFileRecordsEvent(
+                session_id=session_id,
+                message_id=msg_id,
+                uploader_id=user_id,
+                safe_names=safe_names,
+                original_names=original_names,
+            ))
 
         NotifyService.push_to_session(session_id, json.dumps({
             "type": "message",
@@ -526,5 +659,54 @@ class ChatService:
             "msg_id": msg_id,
             "ts": now.isoformat(),
             "msg_type": "file",
-            "files": names,
+            "files": safe_names,
+        }, ensure_ascii=False))
+
+    @staticmethod
+    async def _respond_to_images(session_id: str, user_id: str, up_dir: str, safe_names: list[str], redis: Any, manager: Any) -> None:
+        """개인 세션에서 이미지 업로드 시 봇이 이미지를 보고 응답."""
+        from setting.config import LLM_MODEL_GENERATION, GENERATION_API_KEY
+        from ...kernel.llm import LLM
+
+        images: list[tuple[str, str]] = []
+        for safe_name in safe_names:
+            img_path = os.path.join(up_dir, safe_name)
+            ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else "jpg"
+            mime = _EXT_TO_MIME.get(ext, "image/jpeg")
+            try:
+                payload = await asyncio.to_thread(_read_image_payload, img_path, mime)
+                images.append(payload)
+            except Exception as e:
+                print(f"[ChatService._respond_to_images] 이미지 읽기 실패 {safe_name}: {e}")
+
+        if not images:
+            return
+
+        prompt = "업로드된 이미지를 설명해줘." if len(images) == 1 else f"업로드된 이미지 {len(images)}장을 설명해줘."
+        try:
+            bot_text = await LLM(model_name=LLM_MODEL_GENERATION, api_key=GENERATION_API_KEY).ask(prompt, images=images)
+        except Exception as e:
+            print(f"[ChatService._respond_to_images] LLM 호출 실패: {e}")
+            return
+
+        bot_now = datetime.now(tz=timezone.utc)
+        bot_msg_id = "msg_" + uuid.uuid4().hex[:12]
+        await Cacher.save_message(session_id, {
+            "message_id": bot_msg_id,
+            "session_id": session_id,
+            "sender_id": None,
+            "sender_name": "AI",
+            "sender_type": "ai",
+            "message_type": "text",
+            "content": bot_text,
+            "created_at": bot_now.isoformat(),
+        }, redis, manager)
+
+        NotifyService.push_to_session(session_id, json.dumps({
+            "type": "message",
+            "sender_id": "bot",
+            "sender_name": "AI",
+            "content": bot_text,
+            "msg_id": bot_msg_id,
+            "ts": bot_now.isoformat(),
         }, ensure_ascii=False))

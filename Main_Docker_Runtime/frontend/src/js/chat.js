@@ -181,23 +181,14 @@ export const ChatManager = {
     const isTeamMode = (state.currentParticipantCount || 1) > 1;
 
     Array.from(files).forEach(file => {
-      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-        // 미디어 미리보기 버블
-        appendMessage(chatHistory, '', 'user', {
-          senderName: myNickname,
-          senderId: myId,
-          time: new Date().toISOString(),
-          isTeam: isTeamMode,
-          mediaFile: file,
-        });
-      } else {
-        appendMessage(chatHistory, `[파일 첨부] ${file.name}`, 'user', {
-          senderName: myNickname,
-          senderId: myId,
-          time: new Date().toISOString(),
-          isTeam: isTeamMode,
-        });
-      }
+      if (!file.type.startsWith('image/')) return;
+      appendMessage(chatHistory, '', 'user', {
+        senderName: myNickname,
+        senderId: myId,
+        time: new Date().toISOString(),
+        isTeam: isTeamMode,
+        mediaFile: file,
+      });
     });
 
     BackendHooks.uploadFiles(state.currentSessionId, files);

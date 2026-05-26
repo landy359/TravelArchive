@@ -26,16 +26,21 @@ class Core:
                   history: list,
                   session_topic: str,
                   usr_anal: str,
-                  widget_state: dict) -> tuple[str, dict]:
-        """대화 데이터를 받아 (bot_text, updated_widget_state) 반환."""
+                  widget_state: dict,
+                  **kwargs) -> tuple[str, dict]:
+        """대화 데이터를 받아 (bot_text, updated_widget_state) 반환.
+        kwargs: user_id, kw_bag — Port3의 키워드 점수 주입에 사용 (호출자가 Cacher로 사전 로드)."""
         import json
         from .port1 import Port1
         from .port2 import Port2
         from .port3 import Port3
+        user_id = kwargs.get("user_id", "")
+        kw_bag  = kwargs.get("kw_bag", {})
         p1   = Port1(usr_anal, session_topic, json.dumps(history, ensure_ascii=False))
         p2   = Port2(None, current, widget_state)
-        p3   = Port3(None)
+        p3   = Port3(None, user_id=user_id, kw_bag=kw_bag)
         core = cls(p1, p2, p3)
+        core._prev_pc2 = p2._build_pc2()
         p2.core = core
         p3.core = core
         await p2.on_user_message()
@@ -68,7 +73,6 @@ class Core:
     # ────────────────────────────────────────────────
 
     async def _merge_and_execute(self, pc2: PC2) -> None:
-        self._prev_pc2 = pc2   # diff 기준: 현재 위젯 상태로 초기화
         pc1: PC1 = self.p1.request_pc1()
         pc3: PC3 = self._merge(pc1, pc2)
 
@@ -111,7 +115,7 @@ class Core:
             T_PN=self._diff_or_keep(pc3_result.T_PN, self._prev_pc2.T_PN),
         )
         self._prev_pc2 = pc2_new
-        await self.p2.receive_from_core(pc2_new)
+        await self.p2.receive_from_core(pc2_new, sl_ctx=pc3_result.SL_CTX)
 
     def _diff_or_keep(self, new_val, old_val: list) -> list:
         """None = LLM이 필드를 생략 (이전 값 유지). [] = 명시적 초기화."""

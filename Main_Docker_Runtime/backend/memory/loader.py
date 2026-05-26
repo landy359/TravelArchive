@@ -514,8 +514,24 @@ class Loader:
                WHERE c.session_id = :sid ORDER BY c.created_at DESC LIMIT :lim OFFSET :off""",
             {"sid": session_id, "lim": limit, "off": offset},
         )
+        # 파일 메시지가 있으면 session_files에서 safe_name 목록 조회
+        msg_ids = [r["message_id"] for r in rows if r.get("message_type") == "file" and r.get("message_id")]
+        file_map: dict[str, list[str]] = {}
+        if msg_ids:
+            placeholders = ", ".join(f":mid{i}" for i in range(len(msg_ids)))
+            params = {f"mid{i}": mid for i, mid in enumerate(msg_ids)}
+            file_rows = await postgres.query(
+                f"SELECT message_id, file_url FROM session_files WHERE message_id IN ({placeholders}) ORDER BY uploaded_at",
+                params,
+            )
+            for fr in file_rows:
+                mid = fr["message_id"]
+                # file_url에 safe_name만 저장돼 있으므로 그대로 사용
+                file_map.setdefault(mid, []).append(fr["file_url"])
+
         msgs = []
         for row in rows:
+            mid = row.get("message_id")
             msgs.append({
                 "role": "user" if row.get("sender_type") == "user" else "bot",
                 "content": row.get("content", ""),
@@ -523,10 +539,29 @@ class Loader:
                 "sender_id": row.get("sender_id"),
                 "sender_name": row.get("sender_name", ""),
                 "msg_type": row.get("message_type", "text") or "text",
-                "files": [],
+                "files": file_map.get(mid, []) if mid else [],
             })
         msgs.reverse()
         return msgs
+
+    @staticmethod
+    async def save_file_records(postgres: Any, session_id: str, message_id: str, uploader_id: str, safe_names: list, original_names: list) -> None:
+        import uuid as _uuid
+        from datetime import datetime, timezone
+        now = datetime.now(tz=timezone.utc)
+        for safe_name, original in zip(safe_names, original_names):
+            ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+            file_type = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "gif", "webp", "bmp") else (f"video/{ext}" if ext in ("mp4", "webm", "ogg", "mov") else "application/octet-stream")
+            await postgres.create("SessionFile", {
+                "file_id":     "f_" + _uuid.uuid4().hex[:12],
+                "session_id":  session_id,
+                "message_id":  message_id,
+                "uploader_id": uploader_id,
+                "file_url":    safe_name,
+                "file_name":   original,
+                "file_type":   file_type,
+                "uploaded_at": now,
+            })
 
     @staticmethod
     async def get_user_teams(postgres: Any, user_id: str) -> list[dict[str, Any]]:

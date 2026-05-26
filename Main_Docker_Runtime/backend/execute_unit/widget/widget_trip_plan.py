@@ -48,12 +48,65 @@ class TripPlanWidget:
     #   - set_for_llm() 재사용 가능
 
     def get_for_front(self) -> list:
-        # TODO: 일정표 위젯 표출 형식으로 변환 구현
-        return self._state
+        from ...router.protocol import T_PN_Item
+
+        result = []
+        for day_idx, row in enumerate(self._state):
+            if not isinstance(row, list):
+                continue
+
+            items = []
+            day_date = ""
+            for item in row:
+                if isinstance(item, T_PN_Item):
+                    day_date = item.date or day_date
+                    items.append({
+                        "order":      item.order,
+                        "place":      item.place,
+                        "place_info": item.place_info.to_dict()
+                                      if hasattr(item.place_info, "to_dict")
+                                      else (item.place_info or {}),
+                    })
+                elif isinstance(item, dict):
+                    day_date = item.get("date", "") or day_date
+                    items.append({
+                        "order":      item.get("order", 0),
+                        "place":      item.get("place", ""),
+                        "place_info": item.get("place_info", {}),
+                    })
+
+            result.append({
+                "day":   day_idx + 1,
+                "date":  day_date,
+                "items": items,
+            })
+
+        return result
 
     def set_for_front(self, value) -> None:
-        # TODO: 일정표 위젯 입력 형식 → T_PN_Item 행렬 변환 구현
-        self.set_for_llm(value)
+        if not value:
+            self._state = []
+            return
+
+        converted = []
+        for day_obj in value:
+            if not isinstance(day_obj, dict):
+                continue
+
+            day_date = day_obj.get("date", "")
+            row = []
+            for item in day_obj.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                row.append({
+                    "date":       item.get("date", day_date),
+                    "order":      item.get("order", 0),
+                    "place":      item.get("place", ""),
+                    "place_info": item.get("place_info", {}),
+                })
+            converted.append(row)
+
+        self.set_for_llm(converted)
 
     # ── Redis 경로 ─────────────────────────────────────────────────
 

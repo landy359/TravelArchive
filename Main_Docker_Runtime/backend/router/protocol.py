@@ -24,7 +24,7 @@ class PlaceInfo:
     name:         str   = ""
     address_road: str   = ""
     lat:          float = 0.0
-    lon:          float = 0.0
+    lng:          float = 0.0
     description:  str   = ""
     category:     str   = ""
 
@@ -33,7 +33,7 @@ class PlaceInfo:
             "name":         self.name,
             "address_road": self.address_road,
             "lat":          self.lat,
-            "lon":          self.lon,
+            "lng":          self.lng,
             "description":  self.description,
             "category":     self.category,
         }
@@ -44,7 +44,7 @@ class PlaceInfo:
             name=d.get("name", ""),
             address_road=d.get("address_road", ""),
             lat=float(d.get("lat", 0.0)),
-            lon=float(d.get("lon", 0.0)),
+            lng=float(d.get("lng", 0.0)),
             description=d.get("description", ""),
             category=d.get("category", ""),
         )
@@ -144,6 +144,7 @@ class sDB_Item:
 class dDB_Item:
     """dDB : 동적 날씨 API 레코드"""
     location:      str   = ""
+    forecast_date: str   = ""   # "YYYYMMDD"
     forecast_time: str   = ""   # "09" | "12" | "15" | "18"
     summary:       str   = ""
     rain_prob:     int   = 0    # 0~100
@@ -154,6 +155,7 @@ class dDB_Item:
     def to_dict(self) -> dict:
         return {
             "location":      self.location,
+            "forecast_date": self.forecast_date,
             "forecast_time": self.forecast_time,
             "summary":       self.summary,
             "rain_prob":     self.rain_prob,
@@ -166,6 +168,7 @@ class dDB_Item:
     def from_dict(cls, d: dict) -> dDB_Item:
         return cls(
             location=d.get("location", ""),
+            forecast_date=d.get("forecast_date", ""),
             forecast_time=d.get("forecast_time", ""),
             summary=d.get("summary", ""),
             rain_prob=int(d.get("rain_prob", 0)),
@@ -272,6 +275,8 @@ class PC3:
     T_MP: Optional[List[str]]              = field(default=None)
     T_MK: Optional[List[T_MK_Item]]       = field(default=None)
     T_PN: Optional[List[List[T_PN_Item]]] = field(default=None)
+    # Port3 경로 선택 컨텍스트 (chat_service에서 꺼낸 뒤 Redis에 별도 저장, 커밋 전 제거)
+    SL_CTX: dict                           = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -329,6 +334,9 @@ class QUST:
     T_MP: List[str]              = field(default_factory=list)
     T_MK: List[T_MK_Item]       = field(default_factory=list)
     T_PN: List[List[T_PN_Item]] = field(default_factory=list)
+    # keyword_scorer에서 주입하는 힌트 / PPL이 채우는 파싱 결과
+    kw_hint:        List[str] = field(default_factory=list)
+    route_keywords: dict      = field(default_factory=dict)
     # Kernel 조회 결과
     sDB:  List[sDB_Item]        = field(default_factory=list)
     dDB:  List[dDB_Item]        = field(default_factory=list)

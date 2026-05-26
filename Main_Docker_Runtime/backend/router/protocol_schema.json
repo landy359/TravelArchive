@@ -17,7 +17,7 @@
       "name":         "str",
       "address_road": "str",
       "lat":          "float",
-      "lon":          "float",
+      "lng":          "float",
       "description":  "str",
       "category":     "str"
     },
@@ -49,6 +49,7 @@
 
     "dDB_Item": {
       "location":      "str  // 제주도 지역명",
+      "forecast_date": "str  // YYYYMMDD",
       "forecast_time": "str  // 09|12|15|18",
       "summary":       "str",
       "rain_prob":     "int  // 0~100",
