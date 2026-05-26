@@ -1,0 +1,127 @@
+/* ═══════════════════════════════════════════════════════════════
+   marker-panel.css  —  오른쪽 사이드바 마커 정보 드롭다운 (마커 카드 호스트)
+   ═══════════════════════════════════════════════════════════════ */
+
+#rs-marker-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg, 14px);
+  background: rgba(255, 255, 255, 0.40);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  margin-bottom: 10px;
+}
+
+/* ── 헤더 (항상 표시) ────────────────────────────────────────── */
+.rs-dropdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.rs-dropdown-header:hover { background: rgba(255, 255, 255, 0.04); }
+
+.rs-header-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+  color: #93c5fd;
+}
+.rs-header-icon svg { width: 14px; height: 14px; }
+
+.rs-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rs-header-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(17, 24, 39, 0.90);
+  line-height: 1.4;
+}
+
+.rs-header-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(31, 41, 55, 0.60);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.rs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rs-header-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(31, 41, 55, 0.60);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.rs-header-btn svg { width: 12px; height: 12px; pointer-events: none; }
+.rs-header-btn:hover {
+  background: rgba(255, 255, 255, 0.40);
+  color: rgba(17, 24, 39, 0.90);
+}
+.rs-clear-all-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+.rs-toggle-btn svg { transition: transform 0.2s ease; }
+.rs-chevron-rotated svg { transform: rotate(180deg); }
+
+/* ── 콘텐츠 (카드 컨테이너) ─────────────────────────────────── */
+.rs-dropdown-content {
+  display: none;
+  flex-direction: column;
+}
+
+#rs-marker-dropdown.rs-open .rs-dropdown-content {
+  display: flex;
+}
+
+.rs-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: visible; /* Disable internal scroll for total sidebar scroll */
+  padding: 8px 12px;
+}
