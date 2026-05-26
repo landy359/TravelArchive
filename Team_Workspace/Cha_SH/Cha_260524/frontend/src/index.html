@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Travel Archive</title>
+  <!-- Dark Mode Favicon -->
+  <link rel="icon" type="image/svg+xml" href="./assets/Logo_W.svg" media="(prefers-color-scheme: dark)" />
+  <!-- Light Mode Favicon -->
+  <link rel="icon" type="image/svg+xml" href="./assets/Logo_B.svg" media="(prefers-color-scheme: light)" />
+  <!-- Fallback for browsers that don't support media queries in link tags -->
+  <link rel="shortcut icon" href="./assets/Logo_B.svg" />
+  <link rel="stylesheet" href="./css/styles.css" />
+  <!-- 지도/마커 위젯 CSS 는 위젯 JS 가 import 로 번들 -->
+  <link rel="stylesheet" href="./css/components/marker-info.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script type="module" src="./main.js"></script>
+</head>
+<body>
+  <div class="bg-scene">
+    <div class="bg-gradient"></div>
+    <div class="bg-panorama" id="bgPanorama"></div>
+    <div class="bg-light light-1"></div>
+    <div class="bg-light light-2"></div>
+    <div class="bg-light light-3"></div>
+    <div class="mist mist-1"></div>
+    <div class="mist mist-2"></div>
+  </div>
+
+  <div class="app-shell">
+    <div class="main-panel">
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-resizer left-sidebar-resizer" id="leftSidebarResizer" title="크기 조절"></div>
+
+        <div class="sidebar-header">
+          <div class="flex-between w-full">
+            <div class="sidebar-label cursor-pointer" id="homeBtn" title="메인으로 돌아가기">
+              <div class="sidebar-logo"></div>
+              <span>ARCHIVE</span>
+            </div>
+            <button id="resetLeftSidebarBtn" class="close-right-btn" title="사이드바 크기 초기화">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="1 4 1 10 7 10"></polyline>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+              </svg>
+            </button>
+          </div>
+
+          <!-- 계획 필터 드롭다운 -->
+          <div class="plan-filter" id="planFilter">
+            <button class="plan-filter-trigger" id="planFilterTrigger" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+              <span class="plan-filter-label" id="planFilterLabel">전체</span>
+              <svg class="plan-filter-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="plan-filter-menu" id="planFilterMenu">
+              <!-- JS로 동적 삽입 -->
+            </div>
+          </div>
+
+          <div class="sidebar-tabs">
+            <button id="tabSessions" class="sidebar-tab active" title="대화 목록">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              <span>목록</span>
+            </button>
+            <button id="tabCalendar" class="sidebar-tab" title="여행 일정">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+              <span>달력</span>
+            </button>
+          </div>
+
+          <div id="sessionHeaderControls">
+            <div class="sidebar-title">LIST</div>
+            <button id="newChatBtn" class="new-chat-btn">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              새 대화 시작
+            </button>
+            <button id="mainTeamPlannerBtn" class="new-chat-btn">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+              팀 플래너
+            </button>
+            <button id="tempChatBtn" class="new-chat-btn" style="display:none;">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><circle cx="12" cy="11" r="1" fill="currentColor" stroke="none"></circle><circle cx="8" cy="11" r="1" fill="currentColor" stroke="none"></circle><circle cx="16" cy="11" r="1" fill="currentColor" stroke="none"></circle></svg>
+              임시 채팅
+            </button>
+          </div>
+
+          <div id="calendarHeaderControls" style="display: none;">
+            <div class="sidebar-title">PLAN</div>
+          </div>
+        </div>
+
+        <!-- 세션 목록 뷰 -->
+        <div id="sessionView" class="sidebar-view" style="display: flex;">
+          <div class="sidebar-section-title">목록</div>
+          <div class="sidebar-list" id="sidebarList"></div>
+        </div>
+
+        <!-- 달력/일정 뷰 -->
+        <div id="calendarView" class="sidebar-view" style="display: none;">
+          <div class="calendar-container">
+            <div class="section-header">
+              <div class="section-subtitle">달력</div>
+              <div class="flex items-center gap-8">
+                <button class="section-toggle-btn" id="toggleCalendarBtn" title="접기/펴기">                  <svg class="toggle-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="calendar-placeholder" id="calendarContent">
+              <!-- Rendered via js/calendar.js -->
+            </div>
+            <div id="rs-plan-box" class="rs-plan-box left-plan-box">
+              <div class="rs-dropdown-header" data-plan-header>
+                <div class="rs-header-content">
+                  <div class="rs-header-info">
+                    <div class="rs-header-title">계획</div>
+                  </div>
+                </div>
+                <div class="rs-header-actions">
+                  <button class="rs-header-btn rs-toggle-btn" data-plan-toggle title="접기/열기"></button>
+                </div>
+              </div>
+              <div class="rs-plan-content" data-plan-content></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="theme-popup" id="themePopup">
+            <button class="theme-swatch" data-theme="default" style="background: #bcd3e6;" title="기본(스카이블루)"></button>
+            <button class="theme-swatch" data-theme="dark" style="background: #1f2937;" title="다크 모드"></button>
+            <button class="theme-swatch" data-theme="green" style="background: #a8d5ba;" title="포레스트 그린"></button>
+            <button class="theme-swatch" data-theme="photo" style="background: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%);" title="사진 파노라마"></button>
+          </div>
+          <button class="footer-icon-btn" id="themeBtn" title="테마 변경">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
+          </button>
+          <button class="footer-icon-btn notif-btn" id="notifBtn" title="알림">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+          </button>
+          <button class="footer-icon-btn" id="settingsBtn" title="설정">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+          <button class="footer-icon-btn" id="accountBtn" title="계정">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          </button>
+          <button class="footer-icon-btn" id="helpBtn" title="도움말">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          </button>
+        </div>
+      </aside>
+
+      <main class="content" id="mainContent">
+        <div class="top-bar">
+          <div class="top-bar-left">
+            <button id="menuToggle" class="menu-btn" title="사이드바 열기/닫기">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            </button>
+          </div>
+
+          <div class="top-bar-right">
+            <div class="top-bar-actions" id="topBarActions">
+            <button id="sessionInfoBtn" class="top-action-btn" title="세션 정보" style="display: none;">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            </button>
+            <button id="downloadChatBtn" class="top-action-btn" title="전체 대화 다운로드" style="display: none;">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            </button>
+            <button id="shareChatBtn" class="top-action-btn" title="공유하기" style="display: none;">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+            </button>
+            <button id="mapToggleBtn" class="top-action-btn map-btn" title="지도 보기">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+            </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero" id="heroSection">
+          <!-- 일반 홈 -->
+          <div id="heroNormal">
+            <div class="hero-label">WELCOME</div>
+            <h1> Hello, World.</h1>
+            <p>여행 플래너 메인 대문입니다.</p>
+          </div>
+          <!-- 임시 채팅 모드 -->
+          <div id="hereTempChat" style="display:none;">
+            <div class="hero-label" style="color:#8b5cf6;letter-spacing:.2em;">TEMP CHAT</div>
+            <h1 style="font-size:1.6rem;">임시 채팅</h1>
+            <p style="max-width:300px;line-height:1.8;font-size:0.85rem;opacity:.8;">
+              대화 내용은 <strong>저장되지 않습니다.</strong><br>
+              여행 계획에 소속되지 않으며, 세션 목록에도 표시되지 않습니다.<br>
+              종료하거나 창을 닫으면 내용이 모두 사라집니다.
+            </p>
+            <button id="exitTempChatBtn" class="exit-temp-chat-btn">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+              임시 채팅 종료
+            </button>
+          </div>
+          <!-- 로그인 후 계획 카드 — hero 내부 하단에 위치 -->
+          <div class="home-dashboard-wrapper" id="homeDashboard" style="display:none;"></div>
+        </div>
+
+        <div class="page-section" id="pageSection"></div>
+
+        <div class="chat-history" id="chatHistory"></div>
+
+        <div class="chat-wrap" id="chatWrap">
+          <div class="chat-box" id="chatBox">
+            <button type="button" id="attachBtn" class="expand-btn" title="파일 첨부">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <input type="file" id="fileInput" multiple style="display: none;" />
+            <button type="button" id="expandBtn" class="expand-btn" title="입력창 확장">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+            </button>
+            <textarea id="chatInput" rows="1" placeholder="메시지 또는 파일을 이곳에 드롭하세요 (Shift+Enter로 줄바꿈)"></textarea>
+            <button type="button" id="sendBtn">Enter</button>
+          </div>
+        </div>
+      </main>
+
+      <aside class="right-sidebar collapsed" id="rightSidebar">
+        <div class="sidebar-resizer right-sidebar-resizer" id="rightSidebarResizer" title="크기 조절"></div>
+        <div class="right-sidebar-header">
+          <div class="right-sidebar-title">MAP</div>
+          <div class="right-sidebar-actions flex gap-8">
+            <button id="resetRightSidebarBtn" class="close-right-btn" title="지도 크기 520px로 초기화">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="1 4 1 10 7 10"></polyline>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+              </svg>
+            </button>
+            <button id="closeRightSidebarBtn" class="close-right-btn" title="닫기">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="right-sidebar-content" id="rightSidebarContent">
+          <div id="kakaoMapContainer">
+              <iframe
+                id="mapFrame"
+                src="/html/map.html"
+                style="width:100%; height:100%; border:none; border-radius:12px;"
+                title="지도">
+              </iframe>
+              <!-- iframe temporarily disabled for debugging -->
+              <!--
+              <iframe
+                id="mapFrame"
+                src="./html/map.html"
+                style="width:100%; height:100%; border:none; border-radius:12px;"
+                title="지도">
+              </iframe>
+              -->
+              <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;">
+                지도 로딩 중...
+              </div>
+          </div>
+
+          <!-- 계획 박스 (마커 패널과 동일한 스타일, 콘텐츠 비어 있음) -->
+          <div id="rs-plan-box" class="rs-plan-box">
+            <div class="rs-dropdown-header" data-plan-header>
+              <div class="rs-header-content">
+                <div class="rs-header-info">
+                  <div class="rs-header-title">계획</div>
+                </div>
+              </div>
+              <div class="rs-header-actions">
+                <button class="rs-header-btn rs-toggle-btn" data-plan-toggle title="접기/펴기"></button>
+              </div>
+            </div>
+            <div class="rs-plan-content" data-plan-content></div>
+          </div>
+        </div>
+      </aside>
+      <div class="right-sidebar-overlay" id="rightSidebarOverlay"></div>
+    </div>
+  </div>
+</body>
+</html>

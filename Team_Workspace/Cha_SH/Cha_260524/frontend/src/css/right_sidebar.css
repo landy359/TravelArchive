@@ -1,0 +1,221 @@
+/* ==========================================================
+   RIGHT SIDEBAR (오른쪽 사이드바 - 지도 영역)
+   ========================================================== */
+.right-sidebar {
+  position: relative;
+  width: 420px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 18px; /* Match left sidebar padding */
+  border-left: 1px solid rgba(255, 255, 255, 0.20);
+  background: var(--sidebar-bg, rgba(255, 255, 255, 0.22));
+  backdrop-filter: blur(35px);
+  -webkit-backdrop-filter: blur(35px);
+  transition: width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+  overflow: hidden !important;
+  border-bottom-right-radius: 32px; /* Match main-panel radius */
+}
+
+.right-sidebar.collapsed {
+  width: 0 !important;
+  padding: 0 !important;
+  opacity: 0;
+  border-left: none;
+  border-bottom-right-radius: 0;
+}
+
+.right-sidebar-header {
+  padding: 0 10px;
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.right-sidebar-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: rgba(17, 24, 39, 0.90);
+  letter-spacing: 0.1em;
+}
+
+.close-right-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: rgba(17, 24, 39, 0.6);
+  padding: 6px;
+  border-radius: 8px;
+  transition: 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-right-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+  color: rgba(17, 24, 39, 1);
+}
+
+.right-sidebar-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 10px; /* Internal side padding */
+  container-type: inline-size;  /* 100cqw = 이 컨테이너의 폭 */
+}
+
+#kakaoMapContainer {
+  width: 100%;
+  aspect-ratio: 3 / 2;                  /* 폭 : 높이 = 3 : 2 → 높이 = 폭 × 2/3 */
+  flex-shrink: 0;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  position: relative;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  margin-bottom: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.right-sidebar.notransition {
+  transition: none !important;
+}
+
+/* 리사이저 */
+.right-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  left: 0 !important;
+  width: 10px; /* Slightly wider for better hit area */
+  height: 100%;
+  cursor: col-resize;
+  background-color: transparent;
+  z-index: 99999; /* Highest priority */
+  transition: background-color 0.2s ease;
+}
+
+.right-sidebar-resizer:hover,
+.right-sidebar-resizer.active {
+  background-color: rgba(59, 130, 246, 0.5);
+}
+
+.map-drag-shield::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MARKER DROPDOWN (rightSidebarMarkerPanel.js + markerCard.js)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* MARKER DROPDOWN — #rs-marker-dropdown / .rs-dropdown-* / .rs-header-* / .rs-cards-container  →  widgets/marker-panel/marker-panel.css */
+
+/* ── 계획 박스 (마커 패널 아래) ─────────────────────────────────── */
+.rs-plan-box {
+  margin-top: 10px;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-rows: auto 0fr;
+  overflow: hidden;
+  border-radius: var(--radius-lg, 14px);
+  background: rgba(10, 12, 20, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.rs-plan-box.rs-open {
+  grid-template-rows: auto 1fr;
+}
+.rs-plan-content {
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 12px;
+}
+.rs-plan-box.rs-open .rs-plan-content {
+  padding: 8px 12px 12px;
+}
+
+.right-sidebar-content > .rs-plan-box {
+  display: none;
+}
+
+.left-plan-box {
+  margin: 12px 0 0;
+  width: 100%;
+}
+
+.map-info-resizer {
+  height: 10px;
+  flex: 0 0 10px;
+  cursor: ns-resize;
+  position: relative;
+}
+
+.map-info-resizer::before {
+  content: "";
+  position: absolute;
+  left: 34%;
+  right: 34%;
+  top: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.28);
+}
+
+.map-info-resizer:hover::before,
+.map-info-resizer.active::before {
+  background: rgba(59, 130, 246, 0.65);
+}
+
+/* ==========================================================
+   RESPONSIVE
+   ========================================================== */
+
+/* 모바일 (< 480px) */
+@media (max-width: 479px) {
+  .right-sidebar {
+    width: 100% !important;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    border-bottom-right-radius: 0;
+    z-index: 50;
+    padding: 12px;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.20);
+  }
+
+  .right-sidebar.collapsed {
+    width: 0 !important;
+  }
+
+  /* .rs-marker-card / .rs-card-body / .rs-action-btn → widgets/marker-card/marker-card.css */
+}
+
+/* 태블릿 (480px ~ 768px) */
+@media (min-width: 480px) and (max-width: 768px) {
+  .right-sidebar {
+    width: 360px;
+  }
+}
+
+/* 데스크톱 (> 768px) */
+@media (min-width: 769px) {
+  .right-sidebar {
+    width: 420px;
+  }
+}
