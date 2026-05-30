@@ -1,7 +1,8 @@
+import asyncio
 import os
 from typing import Final, TypeAlias
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError, APITimeoutError, RateLimitError
 
 
 PERSONA: Final[str] = "마크다운, 이모티콘, 이모지를 절대 사용하지 말 것.\n"
@@ -10,6 +11,10 @@ ImagePayload: TypeAlias = tuple[str, str]  # (base64_str, mime_type)
 UserContent: TypeAlias = "str | list[dict]"
 
 _client_cache: dict[str, AsyncOpenAI] = {}
+
+_RETRYABLE = (APIConnectionError, APITimeoutError, RateLimitError)
+_MAX_RETRIES = 3
+_RETRY_DELAY = 2.0  # seconds (doubled each attempt)
 
 
 def _get_client(api_key: str) -> AsyncOpenAI:
@@ -33,18 +38,33 @@ class LLM:
         self._api_key: str = api_key or os.getenv("OPENAI_API_KEY") or ""
         self.client: AsyncOpenAI = _get_client(self._api_key)
 
-    async def ask(self, prompt: str, images: list[ImagePayload] | None = None) -> str:
-        """images: [(base64_str, mime_type), ...] 형태. 있으면 vision 요청."""
+    async def ask(self, prompt: str, images: list[ImagePayload] | None = None, json_mode: bool = False) -> str:
+        """images: [(base64_str, mime_type), ...] 형태. 있으면 vision 요청.
+        json_mode=True 시 response_format=json_object 강제 (JSON 외 출력 차단).
+        재시도 가능한 에러(연결·타임아웃·레이트리밋)는 최대 3회 재시도."""
         user_content: list[dict] | str = _build_image_content(images, prompt) if images else prompt
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": PERSONA},
-                    {"role": "user", "content": user_content},
-                ],
-            )
-            content = response.choices[0].message.content
-            return content or ""
-        except Exception as e:
-            return f"ERROR: {str(e)}"
+        last_exc: Exception | None = None
+        delay = _RETRY_DELAY
+        for attempt in range(_MAX_RETRIES):
+            try:
+                kwargs: dict = dict(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": PERSONA},
+                        {"role": "user", "content": user_content},
+                    ],
+                )
+                if json_mode and not images:
+                    kwargs["response_format"] = {"type": "json_object"}
+                response = await self.client.chat.completions.create(**kwargs)
+                content = response.choices[0].message.content
+                return content or ""
+            except _RETRYABLE as e:
+                last_exc = e
+                print(f"[LLM] 재시도 {attempt + 1}/{_MAX_RETRIES}: {type(e).__name__}: {e}")
+                await asyncio.sleep(delay)
+                delay *= 2
+            except Exception as e:
+                print(f"[LLM] 복구 불가 에러: {type(e).__name__}: {e}")
+                raise
+        raise last_exc

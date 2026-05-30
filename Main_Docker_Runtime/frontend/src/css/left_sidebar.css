@@ -432,9 +432,15 @@
 .schedule-list-container {
   overflow: hidden; /* 애니메이션 wrapper */
   margin-bottom: 12px;
-  padding-right: 0;
+  padding: 8px;
   flex: 0 0 auto;
   box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.40);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* 이중 스크롤 - 각 위젯 내부 스크롤 영역 */

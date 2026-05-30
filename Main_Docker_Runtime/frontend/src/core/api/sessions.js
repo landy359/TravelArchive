@@ -1,5 +1,6 @@
 /**
  * sessions.js  —  세션 라이프사이클 / 메타 / 공유 API
+ * frontend/src/core/api/sessions.js
  */
 
 import { authFetch } from './client.js';
@@ -228,6 +229,54 @@ export async function downloadChat(sessionId) {
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error('API Error (downloadChat):', error);
+    throw error;
+  }
+}
+
+export async function fetchTripSelect(sessionId) {
+  try {
+    if (!sessionId) return { visible: false, options: [] };
+    const res = await authFetch(`/api/sessions/${sessionId}/trip_select`);
+    if (!res.ok) return { visible: false, options: [] };
+    return await res.json();
+  } catch { return { visible: false, options: [] }; }
+}
+
+export async function postTripSelect(sessionId, choice) {
+  try {
+    const res = await authFetch(`/api/sessions/${sessionId}/select`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choice }),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('API Error (postTripSelect):', error);
+    throw error;
+  }
+}
+
+export async function fetchTripPlan(sessionId) {
+  try {
+    const res = await authFetch(`/api/sessions/${sessionId}/trip_plan`);
+    if (!res.ok) return { plan: [] };
+    return await res.json();
+  } catch (error) {
+    console.error('API Error (fetchTripPlan):', error);
+    return { plan: [] };
+  }
+}
+
+export async function saveTripPlan(sessionId, plan) {
+  try {
+    const res = await authFetch(`/api/sessions/${sessionId}/trip_plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan }),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('API Error (saveTripPlan):', error);
     throw error;
   }
 }

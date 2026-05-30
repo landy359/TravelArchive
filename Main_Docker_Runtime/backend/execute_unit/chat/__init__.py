@@ -30,3 +30,8 @@ class ChatUnit:
     async def select_route(session_id: str, user_id: str, choice: str,
                            redis: Any, manager: Any) -> dict:
         return await ChatService.select_route(session_id, user_id, choice, redis, manager)
+
+    @staticmethod
+    async def check_session_member(session_id: str, user_id: str, redis: Any, manager: Any) -> bool:
+        from ...memory.cacher import Cacher
+        return await Cacher.check_session_participant(session_id, user_id, redis, manager)

@@ -34,11 +34,12 @@ class Core:
         from .port1 import Port1
         from .port2 import Port2
         from .port3 import Port3
-        user_id = kwargs.get("user_id", "")
-        kw_bag  = kwargs.get("kw_bag", {})
+        user_id      = kwargs.get("user_id", "")
+        kw_bag       = kwargs.get("kw_bag", {})
+        use_pipeline = kwargs.get("use_pipeline", False)
         p1   = Port1(usr_anal, session_topic, json.dumps(history, ensure_ascii=False))
         p2   = Port2(None, current, widget_state)
-        p3   = Port3(None, user_id=user_id, kw_bag=kw_bag)
+        p3   = Port3(None, user_id=user_id, kw_bag=kw_bag, use_pipeline=use_pipeline)
         core = cls(p1, p2, p3)
         core._prev_pc2 = p2._build_pc2()
         p2.core = core
@@ -94,6 +95,7 @@ class Core:
             T_MP=pc2.T_MP,
             T_MK=pc2.T_MK,
             T_PN=pc2.T_PN,
+            T_SEL=pc2.T_SEL,
         )
 
     def _validate_pc3(self, pc3: PC3) -> bool:
@@ -113,6 +115,7 @@ class Core:
             T_MP=self._diff_or_keep(pc3_result.T_MP, self._prev_pc2.T_MP),
             T_MK=self._diff_or_keep(pc3_result.T_MK, self._prev_pc2.T_MK),
             T_PN=self._diff_or_keep(pc3_result.T_PN, self._prev_pc2.T_PN),
+            T_SEL={},  # LLM 처리 완료 후 커서 초기화
         )
         self._prev_pc2 = pc2_new
         await self.p2.receive_from_core(pc2_new, sl_ctx=pc3_result.SL_CTX)

@@ -35,11 +35,6 @@ class SessionBlurEvent:
     user_id: str
 
 @dataclass
-class WidgetChangeEvent:
-    session_id: str
-    widget_type: str   # "markers" | "routes" | "ranges"
-
-@dataclass
 class CacheMissEvent:
     resource: str      # "user_profile" | "session_meta" | "ui_settings"
     user_id: Optional[str] = None
@@ -314,3 +309,47 @@ class SaveFileRecordsEvent:
     uploader_id:  str
     safe_names:   list  # UUID 안전명 (디스크 저장명)
     original_names: list  # 원본 파일명 (표시용)
+
+@dataclass
+class SaveKwBagEvent:
+    """trip_keyword_scores + keyword_encyclopedia PG 동기화 (fire-and-forget)."""
+    trip_id: str
+    kw_bag:  dict  # {keyword: score}
+
+@dataclass
+class ResetTripPlanEvent:
+    """trip_days + itinerary_items PG 전체 삭제 (fire-and-forget)."""
+    trip_id: str
+
+@dataclass
+class UpsertTripDayEvent:
+    """trip_days row upsert."""
+    trip_id:     str
+    day_id:      str
+    day_number:  int
+    target_date: str  # YYMMDD
+    future:      asyncio.Future
+
+@dataclass
+class DeleteTripDayEvent:
+    """trip_days row 삭제 (CASCADE → itinerary_items)."""
+    trip_id: str
+    day_id:  str
+    future:  asyncio.Future
+
+@dataclass
+class UpsertItineraryItemEvent:
+    """itinerary_items row upsert."""
+    day_id:         str
+    item_id:        str
+    visit_order:    int
+    memo:           str
+    map_route_data: dict
+    future:         asyncio.Future
+
+@dataclass
+class DeleteItineraryItemEvent:
+    """itinerary_items row 삭제."""
+    item_id: str
+    future:  asyncio.Future
+

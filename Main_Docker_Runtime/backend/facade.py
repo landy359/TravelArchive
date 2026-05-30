@@ -26,7 +26,6 @@ from .execute_unit.chat import ChatUnit
 from .execute_unit.system import SystemUnit
 from .execute_unit.user import UserUnit
 from .execute_unit.widget import WidgetUnit
-from .memory.cacher import Cacher
 from .memory.loader import Loader
 
 
@@ -135,6 +134,19 @@ class TripUpdateRequest(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     status: Optional[str] = None
+
+
+class TripDayUpsertRequest(BaseModel):
+    day_id: Optional[str] = None      # None이면 신규 생성
+    day_number: int
+    target_date: str                   # YYMMDD
+
+
+class ItineraryItemUpsertRequest(BaseModel):
+    item_id: Optional[str] = None     # None이면 신규 생성
+    visit_order: int
+    memo: str
+    map_route_data: Optional[dict] = None
 
 
 class TeamCreateRequest(BaseModel):
@@ -359,6 +371,69 @@ async def delete_trip(trip_id: str, request: Request, user_id: str = Depends(get
     return await SystemUnit.delete_trip(request.app.state.redis, request.app.state.manager, trip_id, user_id)
 
 
+@app.get("/api/trips/{trip_id}/widgets")
+async def get_trip_widgets(trip_id: str, request: Request, user_id: str = Depends(get_current_user)):
+    """trip_id로 직접 위젯 전체 조회. Redis miss 시 PG에서 hydrate."""
+    return await WidgetUnit.get_trip_widgets_by_trip_id(
+        trip_id, request.app.state.redis, request.app.state.postgres
+    )
+
+
+@app.post("/api/trips/{trip_id}/reset")
+async def reset_trip_plan(trip_id: str, request: Request, user_id: str = Depends(get_current_user)):
+    """plan 내 일정 전체 초기화 (Redis 위젯 + PG trip_days). 다음 LLM 턴에 초기화 문구 주입."""
+    from .memory.cacher import Cacher
+    await Cacher.reset_trip_plan(trip_id, request.app.state.redis, request.app.state.manager)
+    return {"success": True}
+
+
+@app.post("/api/trips/{trip_id}/days")
+async def upsert_trip_day(trip_id: str, req: TripDayUpsertRequest, request: Request, user_id: str = Depends(get_current_user)):
+    """trip_day 추가 또는 수정. day_id 생략 시 신규 생성."""
+    import uuid as _uuid
+    from .memory.cacher import Cacher
+    day_id = req.day_id or ("day_" + str(_uuid.uuid4())[:8])
+    result = await Cacher.upsert_trip_day(trip_id, day_id, req.day_number, req.target_date, request.app.state.redis, request.app.state.manager)
+    return result
+
+
+@app.put("/api/trips/{trip_id}/days/{day_id}")
+async def update_trip_day(trip_id: str, day_id: str, req: TripDayUpsertRequest, request: Request, user_id: str = Depends(get_current_user)):
+    from .memory.cacher import Cacher
+    result = await Cacher.upsert_trip_day(trip_id, day_id, req.day_number, req.target_date, request.app.state.redis, request.app.state.manager)
+    return result
+
+
+@app.delete("/api/trips/{trip_id}/days/{day_id}")
+async def delete_trip_day(trip_id: str, day_id: str, request: Request, user_id: str = Depends(get_current_user)):
+    from .memory.cacher import Cacher
+    result = await Cacher.delete_trip_day(trip_id, day_id, request.app.state.redis, request.app.state.manager)
+    return result
+
+
+@app.post("/api/trips/{trip_id}/days/{day_id}/items")
+async def upsert_itinerary_item(trip_id: str, day_id: str, req: ItineraryItemUpsertRequest, request: Request, user_id: str = Depends(get_current_user)):
+    """itinerary_item 추가 또는 수정. item_id 생략 시 신규 생성."""
+    import uuid as _uuid
+    from .memory.cacher import Cacher
+    item_id = req.item_id or ("itm_" + str(_uuid.uuid4())[:8])
+    result = await Cacher.upsert_itinerary_item(trip_id, day_id, item_id, req.visit_order, req.memo, req.map_route_data or {}, request.app.state.redis, request.app.state.manager)
+    return result
+
+
+@app.put("/api/trips/{trip_id}/days/{day_id}/items/{item_id}")
+async def update_itinerary_item(trip_id: str, day_id: str, item_id: str, req: ItineraryItemUpsertRequest, request: Request, user_id: str = Depends(get_current_user)):
+    from .memory.cacher import Cacher
+    result = await Cacher.upsert_itinerary_item(trip_id, day_id, item_id, req.visit_order, req.memo, req.map_route_data or {}, request.app.state.redis, request.app.state.manager)
+    return result
+
+
+@app.delete("/api/trips/{trip_id}/days/{day_id}/items/{item_id}")
+async def delete_itinerary_item(trip_id: str, day_id: str, item_id: str, request: Request, user_id: str = Depends(get_current_user)):
+    from .memory.cacher import Cacher
+    result = await Cacher.delete_itinerary_item(trip_id, item_id, request.app.state.redis, request.app.state.manager)
+    return result
+
 
 @app.get("/api/teams")
 async def get_team_list(request: Request, user_id: str = Depends(get_current_user)):
@@ -390,7 +465,7 @@ async def _require_session_member(
     request: Request,
     user_id: str = Depends(get_current_user),
 ) -> str:
-    if not await Cacher.check_session_participant(
+    if not await ChatUnit.check_session_member(
         session_id, user_id,
         request.app.state.redis,
         request.app.state.manager,
@@ -547,6 +622,10 @@ class SelectRouteRequest(BaseModel):
     choice: str  # "A" or "B"
 
 
+class PlanSelectionRequest(BaseModel):
+    days: List[int]  # 0-indexed 일차 번호 (빈 리스트 = 전체)
+
+
 @app.post("/api/sessions/{session_id}/select")
 async def post_trip_select(
     session_id: str,
@@ -574,6 +653,29 @@ async def get_trip_plan(session_id: str, request: Request, user_id: str = Depend
 @app.put("/api/sessions/{session_id}/trip_plan")
 async def save_trip_plan(session_id: str, req: TripPlanRequest, request: Request, user_id: str = Depends(get_current_user)):
     await WidgetUnit.set_t_pn(session_id, request.app.state.redis, req.plan)
+    return {"success": True}
+
+
+@app.put("/api/sessions/{session_id}/plan_selection")
+async def set_plan_selection(
+    session_id: str,
+    req: PlanSelectionRequest,
+    request: Request,
+    user_id: str = Depends(_require_session_member),
+):
+    """편집 대상 일차 커서 설정. 다음 @PLAN 요청에서 해당 일차만 수정됨."""
+    await WidgetUnit.set_t_sel(session_id, request.app.state.redis, {"days": req.days})
+    return {"success": True, "days": req.days}
+
+
+@app.delete("/api/sessions/{session_id}/plan_selection")
+async def clear_plan_selection(
+    session_id: str,
+    request: Request,
+    user_id: str = Depends(_require_session_member),
+):
+    """편집 대상 일차 커서 초기화 (전체 수정 모드)."""
+    await WidgetUnit.set_t_sel(session_id, request.app.state.redis, {})
     return {"success": True}
 
 

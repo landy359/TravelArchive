@@ -1,7 +1,7 @@
 """
 [역할] Kernel 전용 범용 DB 커넥터.
        Memory 계층(memory/adapters.py)과 완전히 독립.
-       SELECT / INSERT / UPDATE / DELETE 4개 연산만 지원. JOIN·HAVING·VIEW 없음.
+       기본 4종(SELECT/INSERT/UPDATE/DELETE) + PostGIS 거리(select_nearby) + raw SQL(execute_raw).
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from psycopg2.extras import RealDictCursor
 # ────────────────────────────────────────────────────
 
 SDB_TABLE = "places"         # 정적 장소 DB
+ALIAS_TABLE = "alias"        # places 1:N 별칭 테이블 (alias_id, place_id, alias)
 DDB_TABLE = "weather_cache"  # 동적 날씨 캐시
 
 
@@ -107,6 +108,43 @@ class DBConnector:
             self._select_sync, table, columns or [], where or {}, limit
         )
 
+    async def select_nearby(
+        self,
+        table: str,
+        *,
+        columns: list[str] | None = None,
+        where: dict[str, Any] | None = None,
+        near: tuple[float, float],
+        within_m: float,
+        limit: int,
+        geom_column: str = "geom",
+    ) -> list[dict[str, Any]]:
+        """PostGIS 거리 조회.
+
+        ``WHERE <equality> AND ST_DWithin(geom, point, within_m)``
+        ``ORDER BY ST_Distance(geom, point) ASC LIMIT limit``
+
+        :param near: (lon, lat) — PostGIS 표준 좌표 순서.
+        :param within_m: 검색 반경 (미터, geography 거리).
+        """
+        return await asyncio.to_thread(
+            self._select_nearby_sync,
+            table, columns or [], where or {}, near, within_m, limit, geom_column,
+        )
+
+    async def execute_raw(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Raw SQL escape hatch — JOIN/CTE/집계 등 4종 메서드로 표현 불가능한 쿼리용.
+
+        호출자는 식별자(테이블/컬럼명)를 쿼리 문자열에 직접 박지 말고
+        파라미터로 받는 값만 ``%(name)s`` placeholder 로 넘긴다.
+        DDL(ALTER/CREATE)은 의도된 용도가 아니다.
+        """
+        return await asyncio.to_thread(self._execute_raw_sync, query, params or {})
+
     async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """INSERT … RETURNING * → 삽입된 row 반환."""
         return await asyncio.to_thread(self._insert_sync, table, data)
@@ -162,6 +200,57 @@ class DBConnector:
                 cur.execute(sql.SQL("").join(parts), params)
                 return [_serialize_row(r) for r in cur.fetchall()]
 
+    def _select_nearby_sync(
+        self,
+        table: str,
+        columns: list[str],
+        where: dict[str, Any],
+        near: tuple[float, float],
+        within_m: float,
+        limit: int,
+        geom_column: str,
+    ) -> list[dict[str, Any]]:
+        lon, lat = near
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                col_clause = (
+                    sql.SQL(", ").join(_safe_id(c) for c in columns)
+                    if columns else sql.SQL("*")
+                )
+                geom_id = _safe_id(geom_column)
+                point_expr = sql.SQL(
+                    "ST_SetSRID(ST_MakePoint({}, {}), 4326)::geography"
+                ).format(sql.Placeholder("_lon"), sql.Placeholder("_lat"))
+
+                params: dict[str, Any] = {
+                    "_lon": float(lon),
+                    "_lat": float(lat),
+                    "_radius": float(within_m),
+                    "_limit": int(limit),
+                }
+
+                parts: list[sql.Composable] = [
+                    sql.SQL("SELECT {} FROM {} WHERE ").format(col_clause, _safe_id(table))
+                ]
+                if where:
+                    eq_clause, eq_params = _where_clause(where)
+                    parts.append(eq_clause)
+                    parts.append(sql.SQL(" AND "))
+                    params.update(eq_params)
+                parts.append(
+                    sql.SQL("ST_DWithin({}::geography, {}, {})").format(
+                        geom_id, point_expr, sql.Placeholder("_radius")
+                    )
+                )
+                parts.append(
+                    sql.SQL(" ORDER BY ST_Distance({}::geography, {}) ASC LIMIT {}").format(
+                        geom_id, point_expr, sql.Placeholder("_limit")
+                    )
+                )
+
+                cur.execute(sql.SQL("").join(parts), params)
+                return [_serialize_row(r) for r in cur.fetchall()]
+
     def _insert_sync(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         if not data:
             raise ValueError("insert: data must not be empty")
@@ -210,3 +299,13 @@ class DBConnector:
                     params,
                 )
                 return cur.rowcount
+
+    def _execute_raw_sync(
+        self, query: str, params: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, params)
+                if cur.description is None:
+                    return []
+                return [_serialize_row(r) for r in cur.fetchall()]

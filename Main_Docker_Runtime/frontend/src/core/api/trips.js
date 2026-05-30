@@ -73,6 +73,12 @@ export async function saveTripRange(sessionId, ranges) {
   }
 }
 
+export async function resetTripPlan(tripId) {
+  const res = await authFetch(`/api/trips/${tripId}/reset`, { method: 'POST' });
+  if (!res.ok) throw new Error('reset 실패');
+  return res.json();
+}
+
 export async function fetchTripRange(sessionId) {
   try {
     if (!sessionId || sessionId === 'default') return { ranges: [] };

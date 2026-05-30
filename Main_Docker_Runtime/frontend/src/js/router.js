@@ -9,8 +9,10 @@ import { BackendHooks, TokenManager } from './api.js';
 import { HomeManager } from './home.js';
 import { SidebarManager } from './sidebar.js';
 import { CalendarManager } from './calendar.js';
-import { showLoadingIndicator, removeLoadingIndicator, appendMessage, adjustTextareaHeight, renderFileInMsg } from './ui.js';
+import { showLoadingIndicator, removeLoadingIndicator, appendMessage, appendTripSelect, adjustTextareaHeight, renderFileInMsg } from './ui.js';
+import { fetchTripSelect, postTripSelect } from '../core/api/sessions.js';
 import { SessionManager } from './session.js';
+import { ScheduleManager } from './schedule.js';
 
 const PAGES = {
   '#/settings': { type: 'page', renderer: renderSettingsPage },
@@ -79,6 +81,20 @@ function _isBotMsg(msg) {
 function _msgRole(msg, myId) {
   if (_isBotMsg(msg)) return 'bot';
   return msg.sender_id === myId ? 'user' : 'bot';
+}
+
+export async function renderTripSelect(chatHistory, ssid) {
+  const data = await fetchTripSelect(ssid);
+  appendTripSelect(chatHistory, data, {
+    onSelect: async (option) => {
+      try {
+        await postTripSelect(ssid, option.key);
+        chatHistory.querySelectorAll('.trip-select-row').forEach(el => el.remove());
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+        // A: 조용히 적용 (CC가 이미 A안 설명), B: 봇 메시지 SSE로 자동 표시
+      } catch { /* silent */ }
+    },
+  });
 }
 
 function _renderMsgs(chatHistory, msgs, myId, isTeam, sessionId) {
@@ -175,6 +191,7 @@ export async function router(state, elements) {
       state.currentSessionId = ssid;
 
       CalendarManager.loadTripRange(ssid);
+      ScheduleManager.loadPlan(ssid);
       BackendHooks.markSessionRead(ssid).catch(() => {});
       SessionManager.clearUnreadDot(ssid);
 
@@ -187,12 +204,14 @@ export async function router(state, elements) {
         ]);
         const participantCount = infoRes?.participants?.length || 1;
         state.currentParticipantCount = participantCount;
+        ScheduleManager.setTripId(infoRes?.trip_id || null);
         removeLoadingIndicator(loadingId);
         const myId = TokenManager.getUserId();
         const isTeam = participantCount > 1;
         _renderMsgs(chatHistory, result.messages, myId, isTeam, ssid);
         chatHistory.scrollTop = chatHistory.scrollHeight;
         _attachScrollPager(chatHistory, ssid, myId, isTeam, state);
+        renderTripSelect(chatHistory, ssid).catch(() => {});
       } catch (e) {
         console.error(e);
         removeLoadingIndicator(loadingId);
@@ -209,6 +228,7 @@ export async function router(state, elements) {
           _renderMsgs(chatHistory, result2.messages, myId2, isTeam2, ssid);
           chatHistory.scrollTop = chatHistory.scrollHeight;
           _attachScrollPager(chatHistory, ssid, myId2, isTeam2, state);
+          renderTripSelect(chatHistory, ssid).catch(() => {});
         } catch (e) {
           removeLoadingIndicator(loadingId2);
         }
@@ -236,6 +256,10 @@ export async function router(state, elements) {
               chatHistory.scrollTop = chatHistory.scrollHeight;
               if (document.visibilityState === 'visible') {
                 BackendHooks.markSessionRead(ssid).catch(() => {});
+              }
+              // bot message may carry t_sl widget — refresh select widget
+              if (event.sender_id === 'bot' || event.sender_id === null) {
+                renderTripSelect(chatHistory, ssid).catch(() => {});
               }
             }
           } else if (event.type === 'kicked') {
@@ -270,6 +294,30 @@ export async function router(state, elements) {
             const wrapper = document.querySelector(`.sidebar-item-wrapper[data-session-id="${event.session_id}"]`);
             const bar = wrapper?.querySelector('.session-color-bar');
             if (bar) bar.style.background = event.color;
+          } else if (event.type === 'widget_updated' || event.type === 'widget_update') {
+            const mapIframe = document.querySelector('.map-container iframe');
+            if (mapIframe && event.widgets) {
+              if (event.widgets.t_mk) {
+                mapIframe.contentWindow.postMessage({ type: 'DELETE_ALL_MARKERS' }, '*');
+                setTimeout(() => {
+                  event.widgets.t_mk.forEach(m => {
+                    mapIframe.contentWindow.postMessage({
+                      type: 'ADD_MARKER',
+                      lat: m.lat,
+                      lng: m.lng,
+                      title: m.title || m.name,
+                      markerId: m.marker_id,
+                    }, '*');
+                  });
+                }, 100);
+              }
+            }
+            if (event.widgets?.t_pn) {
+              ScheduleManager.loadPlan(ssid);
+            }
+            if (event.widgets?.t_sl) {
+              renderTripSelect(chatHistory, ssid).catch(() => {});
+            }
           } else if (event.type === 'notification') {
             // 알림 실시간 뱃지 갱신
             const badge = document.getElementById('notifBadge');
@@ -322,6 +370,7 @@ export async function router(state, elements) {
   }
 
   CalendarManager.loadTripRange(null);
+  ScheduleManager.loadPlan(null);
 
   if (page.type === 'home') {
     chatHistory.innerHTML = '';

@@ -81,16 +81,16 @@ class TripMarkerWidget:
     # ── Redis 경로 ─────────────────────────────────────────────────
 
     @staticmethod
-    async def save_to_redis(session_id: str, redis, value: list) -> None:
+    async def save_to_redis(scope_key: str, redis, value: list) -> None:
         from ...memory.constants import DATA_TTL
         from ...router.protocol import T_MK_Item
         normalized = [
             item.to_dict() if isinstance(item, T_MK_Item) else item
             for item in (value or [])
         ]
-        await redis.set_json(f"session:{session_id}:{TripMarkerWidget._REDIS_KEY}", normalized, DATA_TTL)
+        await redis.set_json(f"{scope_key}:{TripMarkerWidget._REDIS_KEY}", normalized, DATA_TTL)
 
     @staticmethod
-    async def load_from_redis(session_id: str, redis) -> list:
-        data: Optional[list] = await redis.get_json(f"session:{session_id}:{TripMarkerWidget._REDIS_KEY}")
+    async def load_from_redis(scope_key: str, redis) -> list:
+        data: Optional[list] = await redis.get_json(f"{scope_key}:{TripMarkerWidget._REDIS_KEY}")
         return data if data else []

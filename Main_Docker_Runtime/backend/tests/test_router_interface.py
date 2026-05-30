@@ -104,7 +104,7 @@ class ProtocolShapeTests(unittest.TestCase):
         pc1_f  = {"USR_ANAL", "SSN_TPC", "SSN_PCL"}
         pc2_f  = {"CC", "T_SL", "T_CD", "T_MP", "T_MK", "T_PN"}
         pc3_f  = pc1_f | pc2_f | {"SL_CTX"}
-        qust_f = pc1_f | pc2_f | {"kw_hint", "route_keywords", "sDB", "dDB", "PPL"}
+        qust_f = pc1_f | pc2_f | {"kw_hint", "route_keywords", "sDB", "dDB", "PPL", "days"}
 
         self.assertEqual(set(PC1().__dataclass_fields__), pc1_f)
         self.assertEqual(set(PC2().__dataclass_fields__), pc2_f)

@@ -36,6 +36,10 @@
   align-items: center;
   gap: 4px;
 
+  /* 좌우 꽉 참 방지 */
+  width: auto !important;
+  max-width: calc(100% - 32px);
+
   background: var(--oc-bg);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);

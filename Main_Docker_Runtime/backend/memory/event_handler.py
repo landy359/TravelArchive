@@ -46,7 +46,13 @@ from .events import (
     RefreshRequestEvent,
     RemoveNonMasterEvent,
     SaveFileRecordsEvent,
+    DeleteItineraryItemEvent,
+    DeleteTripDayEvent,
+    ResetTripPlanEvent,
+    SaveKwBagEvent,
     SaveMessageEvent,
+    UpsertItineraryItemEvent,
+    UpsertTripDayEvent,
     SaveNotificationEvent,
     SaveSettingsEvent,
     SearchUsersEvent,
@@ -56,7 +62,6 @@ from .events import (
     SignupRequestEvent,
     UpdateSessionRecordEvent,
     UpdateTripEvent,
-    WidgetChangeEvent,
 )
 from .loader import Loader
 
@@ -141,7 +146,6 @@ class EventHandler:
             case BeforeUnloadEvent(): await self._on_beforeunload(event)
             case SessionOpenEvent(): await self._on_session_open(event)
             case SessionBlurEvent(): await self._on_session_blur(event)
-            case WidgetChangeEvent(): await self._on_widget_change(event)
             case CacheMissEvent(): await self._on_cache_miss(event)
             case AccountDeleteEvent(): await self._on_account_delete(event)
             case SaveSettingsEvent(): await self._on_save_settings(event)
@@ -185,6 +189,12 @@ class EventHandler:
             case ClearNotifsEvent(): await self._on_clear_notifs(event)
             case LoadUserSessionTopicsEvent(): await self._on_load_user_session_topics(event)
             case SaveFileRecordsEvent(): await self._on_save_file_records(event)
+            case SaveKwBagEvent():             await self._on_save_kw_bag(event)
+            case ResetTripPlanEvent():         await self._on_reset_trip_plan(event)
+            case UpsertTripDayEvent():         await self._on_upsert_trip_day(event)
+            case DeleteTripDayEvent():         await self._on_delete_trip_day(event)
+            case UpsertItineraryItemEvent():   await self._on_upsert_itinerary_item(event)
+            case DeleteItineraryItemEvent():   await self._on_delete_itinerary_item(event)
             case _: print(f"[EventHandler] 알 수 없는 이벤트: {type(event)}")
 
     async def _on_login(self, e: LoginEvent) -> None:
@@ -206,17 +216,19 @@ class EventHandler:
         await Cacher.save_user_profile(e.user_id, {}, self._redis)
 
     async def _on_beforeunload(self, e: BeforeUnloadEvent) -> None:
+        async def _flush():
+            await Loader.flush_user_data(e.user_id, self._pg, self._redis, clear=False)
+            await Loader.flush_user_sessions(e.user_id, self._pg, self._redis)
         try:
-            async with asyncio.timeout(5.0):
-                await Loader.flush_user_data(e.user_id, self._pg, self._redis, clear=False)
-                await Loader.flush_user_sessions(e.user_id, self._pg, self._redis)
-        except TimeoutError:
+            await asyncio.wait_for(_flush(), timeout=5.0)
+        except (asyncio.TimeoutError, TimeoutError):
             print(f"[EventHandler] beforeunload flush 타임아웃: {e.user_id}")
 
     async def _on_session_open(self, e: SessionOpenEvent) -> None:
         if not await Cacher.get_session_meta(e.session_id, self._redis):
             await Loader.load_session_to_redis(e.session_id, self._pg, self._redis)
         await Loader.hydrate_messages_to_redis(e.session_id, self._pg, self._redis)
+        await Loader.hydrate_trip_plan_to_redis(e.session_id, self._pg, self._redis)
         profile = await Cacher.get_user_profile(e.user_id, self._redis)
         if not profile.get("nickname"):
             await Loader.load_user_to_redis(e.user_id, self._pg, self._redis)
@@ -224,9 +236,6 @@ class EventHandler:
 
     async def _on_session_blur(self, e: SessionBlurEvent) -> None:
         await Loader.flush_dirty_widgets(e.session_id, self._pg, self._redis)
-
-    async def _on_widget_change(self, e: WidgetChangeEvent) -> None:
-        await Cacher.mark_dirty_widget(e.session_id, e.widget_type, self._redis)
 
     async def _on_cache_miss(self, e: CacheMissEvent) -> None:
         if e.resource == "user_profile" and e.user_id:
@@ -456,6 +465,46 @@ class EventHandler:
         except Exception as ex:
             print(f"[EventHandler] save_file_records 실패 {e.session_id}: {ex!r}")
 
+    async def _on_save_kw_bag(self, e: SaveKwBagEvent) -> None:
+        try:
+            await Loader.save_trip_kw_bag(e.trip_id, e.kw_bag, self._pg)
+        except Exception as ex:
+            print(f"[EventHandler] save_kw_bag 실패 {e.trip_id}: {ex!r}")
+
+    async def _on_reset_trip_plan(self, e: ResetTripPlanEvent) -> None:
+        try:
+            await Loader.reset_trip_plan(e.trip_id, self._pg)
+        except Exception as ex:
+            print(f"[EventHandler] reset_trip_plan 실패 {e.trip_id}: {ex!r}")
+
+    async def _on_upsert_trip_day(self, e: UpsertTripDayEvent) -> None:
+        try:
+            await Loader.upsert_trip_day(e.trip_id, e.day_id, e.day_number, e.target_date, self._pg)
+            e.future.set_result({"day_id": e.day_id})
+        except Exception as ex:
+            e.future.set_exception(ex)
+
+    async def _on_delete_trip_day(self, e: DeleteTripDayEvent) -> None:
+        try:
+            await Loader.delete_trip_day(e.day_id, self._pg)
+            e.future.set_result({"day_id": e.day_id})
+        except Exception as ex:
+            e.future.set_exception(ex)
+
+    async def _on_upsert_itinerary_item(self, e: UpsertItineraryItemEvent) -> None:
+        try:
+            await Loader.upsert_itinerary_item(e.day_id, e.item_id, e.visit_order, e.memo, e.map_route_data, self._pg)
+            e.future.set_result({"item_id": e.item_id})
+        except Exception as ex:
+            e.future.set_exception(ex)
+
+    async def _on_delete_itinerary_item(self, e: DeleteItineraryItemEvent) -> None:
+        try:
+            await Loader.delete_itinerary_item(e.item_id, self._pg)
+            e.future.set_result({"item_id": e.item_id})
+        except Exception as ex:
+            e.future.set_exception(ex)
+
     async def _on_save_notification(self, e: SaveNotificationEvent) -> None:
         try:
             await Loader.save_notification_record(self._pg, e.notif_data)
@@ -465,6 +514,9 @@ class EventHandler:
     async def _on_create_session(self, e: CreateSessionEvent) -> None:
         try:
             await Loader.create_session_record(self._pg, e.session_id, e.user_id, e.data)
+            trip_id = e.data.get("trip_id")
+            if trip_id:
+                await self._redis.set_str(f"session:{e.session_id}:trip_id", trip_id, SESSION_TTL)
             e.future.set_result(None)
         except Exception as ex:
             e.future.set_exception(ex)

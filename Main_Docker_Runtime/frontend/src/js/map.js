@@ -1,4 +1,3 @@
-import { initOverlayControls }  from './mapOverlayControls.js';
 import { initMarkerInfo }        from './mapMarkerInfo.js';
 import { PolylineManager }       from './mapPolylineManager.js';
 import { MarkerManager }         from './map/markerManager.js';
@@ -22,14 +21,19 @@ script.onload = () => {
     const defaultPos = new kakao.maps.LatLng(37.5665, 126.9780);
 
     function initMap(map) {
-      const polylineManager = new PolylineManager(map);
-      const markerManager   = new MarkerManager(map, polylineManager);
+      const polylineManager   = new PolylineManager(map);
+      const markerManager     = new MarkerManager(map, polylineManager);
+      const locationHandler   = createLocationHandler(map, markerManager);
 
       if (window.parent !== window) {
         window.parent.kakaoMap = map;
         window.parent.kakaoMapCenter = map.getCenter();
         kakao.maps.event.addListener(map, 'center_changed', () => {
           window.parent.kakaoMapCenter = map.getCenter();
+        });
+        // 줌 변경 시 부모에 알림
+        kakao.maps.event.addListener(map, 'zoom_changed', () => {
+          window.parent.postMessage({ type: 'OC_ZOOM_CHANGED', level: map.getLevel() }, '*');
         });
         // 사이드바가 열려 있을 때만 relayout
         setTimeout(() => {
@@ -38,13 +42,14 @@ script.onload = () => {
             map.relayout();
             map.setCenter(defaultPos);
           }
-        }, 150);
+          // 초기 줌 레벨 전달
+          window.parent.postMessage({ type: 'OC_ZOOM_CHANGED', level: map.getLevel() }, '*');
+        }, 200);
       }
 
       const markerInfo = initMarkerInfo(map, container);
-      initOverlayControls(map, container, createLocationHandler(map, markerManager));
       setupClickListener(map, markerManager, markerInfo);
-      setupMessageListener(map, markerManager, markerInfo);
+      setupMessageListener(map, markerManager, markerInfo, locationHandler);
       markerManager.loadExisting(markerInfo);
     }
 

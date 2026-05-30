@@ -9,6 +9,7 @@ import {
   mount as mountChatMessage,
   renderFileInMsg as _renderFileInMsg,
 } from '../widgets/chat-message/index.js';
+import { mount as mountTripSelect } from '../widgets/trip-select/index.js';
 
 export function updateSidebarSessionTitle(sessionId, newTitle) {
   const itemBtn = document.querySelector(`.sidebar-item[data-session-id="${sessionId}"]`);
@@ -90,5 +91,17 @@ export function appendMessage(chatHistory, text, sender, meta = {}) {
     onCopySuccess: () => showToast('메시지가 복사되었습니다.'),
   });
   return m.el; // 기존 호출자가 row element 를 받으므로 그대로 반환
+}
+
+export function appendTripSelect(chatHistory, data, handlers = {}) {
+  chatHistory.querySelectorAll('.trip-select-row').forEach((el) => el.remove());
+  if (!data?.visible || !Array.isArray(data.options) || data.options.length < 2) {
+    return null;
+  }
+  const m = mountTripSelect(chatHistory, {
+    data,
+    onSelect: handlers.onSelect,
+  });
+  return m.el;
 }
 

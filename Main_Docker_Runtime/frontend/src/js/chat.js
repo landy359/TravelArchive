@@ -11,7 +11,7 @@ import {
   adjustTextareaHeight,
   updateSidebarSessionTitle
 } from './ui.js';
-import { switchView } from './router.js';
+import { switchView, renderTripSelect } from './router.js';
 import { SessionManager } from './session.js';
 import { attach as attachMentionDropdown } from '../widgets/mention-dropdown/index.js';
 
@@ -88,7 +88,13 @@ export const ChatManager = {
             chatHistory.scrollTop = chatHistory.scrollHeight;
           }
         },
-        () => { removeLoading(); state.isReceiving = false; }
+        () => {
+          removeLoading();
+          state.isReceiving = false;
+          if (state.currentSessionId) {
+            renderTripSelect(chatHistory, state.currentSessionId).catch(() => {});
+          }
+        }
       );
     } catch (error) {
       removeLoading();

@@ -42,11 +42,16 @@ class TripClanderWidget:
         if len(parsed_dates) == 1:
             start = parsed_dates[0]
             end = start + timedelta(days=nights) if nights is not None else start
-            return [TripClanderWidget._format_date(start), TripClanderWidget._format_date(end)]
+        else:
+            start = min(parsed_dates)
+            end = max(parsed_dates)
 
-        start = min(parsed_dates)
-        end = max(parsed_dates)
-        return [TripClanderWidget._format_date(start), TripClanderWidget._format_date(end)]
+        result = []
+        cur = start
+        while cur <= end:
+            result.append(TripClanderWidget._format_date(cur))
+            cur += timedelta(days=1)
+        return result
 
     @staticmethod
     def _flatten_input(value: Any) -> List[Any]:
@@ -167,12 +172,12 @@ class TripClanderWidget:
     # ── Redis 경로 ─────────────────────────────────────────────────
 
     @staticmethod
-    async def save_to_redis(session_id: str, redis, value: Any) -> None:
+    async def save_to_redis(scope_key: str, redis, value: Any) -> None:
         from ...memory.constants import DATA_TTL
         normalized = TripClanderWidget._normalize_dates(value)
-        await redis.set_json(f"session:{session_id}:{TripClanderWidget._REDIS_KEY}", normalized, DATA_TTL)
+        await redis.set_json(f"{scope_key}:{TripClanderWidget._REDIS_KEY}", normalized, DATA_TTL)
 
     @staticmethod
-    async def load_from_redis(session_id: str, redis) -> List[str]:
-        data: Optional[list] = await redis.get_json(f"session:{session_id}:{TripClanderWidget._REDIS_KEY}")
+    async def load_from_redis(scope_key: str, redis) -> List[str]:
+        data: Optional[list] = await redis.get_json(f"{scope_key}:{TripClanderWidget._REDIS_KEY}")
         return TripClanderWidget._normalize_dates(data)

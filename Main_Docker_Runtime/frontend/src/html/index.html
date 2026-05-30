@@ -114,6 +114,26 @@
               <!-- Rendered via js/calendar.js -->
             </div>
           </div>
+
+          <!-- 여행 일정 위젯 (왼쪽 사이드바) -->
+          <div class="calendar-container left-plan-box">
+            <div class="section-header">
+              <div class="section-subtitle">일정</div>
+              <div class="flex items-center gap-8">
+                <button class="row-action-btn" id="resetPlanBtn" title="일정 전체 초기화">
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>
+                </button>
+                <button class="section-toggle-btn" id="togglePlanBtn" title="접기/펴기">
+                  <svg class="toggle-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="schedule-list-container" id="planContent">
+              <div id="left-plan-content" data-plan-content></div>
+            </div>
+          </div>
         </div>
 
         <div class="sidebar-footer">
@@ -241,6 +261,9 @@
                 title="지도">
               </iframe>
           </div>
+
+          <!-- 지도 오버레이 컨트롤 (지도 밖, 마커 패널 위) -->
+          <div id="oc-host"></div>
 
           <!-- 계획 박스 (마커 패널과 동일한 스타일, 콘텐츠 비어 있음) -->
           <div id="rs-plan-box" class="rs-plan-box">

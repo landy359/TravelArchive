@@ -250,8 +250,13 @@ class ChatService:
         return {"success": True, "share_url": f"/share/{session_id}"}
 
     @staticmethod
-    async def _get_container(session_id: str, user_id: str, redis: Any) -> SessionContainer:
-        """항상 새 컨테이너를 생성하고 Redis에서 상태를 복원."""
+    async def _get_container(session_id: str, user_id: str, redis: Any, manager: Any = None) -> SessionContainer:
+        """세션 컨테이너 초기화 게이트.
+        trip_id가 Redis에 없으면 SessionOpenEvent로 trip_id 캐시 + plan hydrate를 보장한 뒤 로드.
+        """
+        if not await redis.get_str(f"session:{session_id}:trip_id") and manager is not None:
+            from ...memory.events import SessionOpenEvent
+            await manager.emit_and_wait(SessionOpenEvent(session_id=session_id, user_id=user_id))
         container = SessionContainer(session_id=session_id, user_id=user_id)
         await container.load_from_redis(redis)
         return container
@@ -289,29 +294,21 @@ class ChatService:
             ChatService._broadcast_user_message(session_id, user_id, sender_name, message, msg_id, now)
             ChatService._push_unviewed_user_notices(session_id, other_ids, sender_name, message)
 
+        # 전각 @(＠, U+FF20)를 일반 @로 정규화
+        message = message.replace('＠', '@')
+
         if not is_team:
-            # @BOT 제거 후 @PLAN 여부로 파이프라인 분기
             content = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
-            plan_m  = _re.match(r'^@PLAN\s*([\s\S]*)', content, _re.IGNORECASE)
-            if plan_m:
-                query = plan_m.group(1).strip()
-                return await ChatService._stream_bot_response(session_id, query, user_id, redis, manager)
-            return await ChatService._stream_simple_bot_response(session_id, content, user_id, redis, manager)
+            use_pipeline = bool(_re.match(r'^@PLAN', content, _re.IGNORECASE))
+            content = _re.sub(r'^@PLAN\s*', '', content, flags=_re.IGNORECASE).strip()
+            return await ChatService._stream_bot_response(session_id, content, user_id, redis, manager, use_pipeline=use_pipeline)
 
-        # 팀 세션: @PLAN [query] (BOT 없이도 PLAN은 봇을 포함)
-        plan_msg = _re.match(r'^@PLAN\s*([\s\S]*)', message, _re.IGNORECASE)
-        if plan_msg:
-            query = plan_msg.group(1).strip()
-            return await ChatService._stream_bot_response(session_id, query, user_id, redis, manager)
-
-        # 팀 세션: @BOT @PLAN or @BOT only
-        bot_match = _re.match(r'^@BOT\s+([\s\S]+)', message, _re.IGNORECASE)
-        if bot_match:
-            content  = bot_match.group(1).strip()
-            plan_m   = _re.match(r'^@PLAN\s*([\s\S]*)', content, _re.IGNORECASE)
-            if plan_m:
-                return await ChatService._stream_bot_response(session_id, plan_m.group(1).strip(), user_id, redis, manager)
-            return await ChatService._stream_simple_bot_response(session_id, content, user_id, redis, manager)
+        # 팀 세션
+        content = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
+        use_pipeline = bool(_re.match(r'^@PLAN', content, _re.IGNORECASE))
+        content = _re.sub(r'^@PLAN\s*', '', content, flags=_re.IGNORECASE).strip()
+        if content or message.upper().startswith(('@BOT', '@PLAN')):
+            return await ChatService._stream_bot_response(session_id, content, user_id, redis, manager, use_pipeline=use_pipeline)
 
         _spawn_task(ChatService._run_ingest(session_id, user_id, message, redis, manager))
 
@@ -367,7 +364,7 @@ class ChatService:
     @staticmethod
     async def _run_ingest(session_id: str, user_id: str, message: str, redis: Any, manager: Any) -> None:
         try:
-            container = await ChatService._get_container(session_id, user_id, redis)
+            container = await ChatService._get_container(session_id, user_id, redis, manager)
             await container.commit_turn(user_text=message)
             await ChatService._apply_title_change(container, session_id, user_id, redis, manager)
         except Exception as e:
@@ -413,33 +410,39 @@ class ChatService:
         ))
 
     @staticmethod
-    async def _stream_bot_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
+    async def _stream_bot_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any, use_pipeline: bool = False) -> StreamingResponse:
 
         async def _stream():
             bot_text = "죄송합니다, 응답을 생성할 수 없습니다."
             try:
-                from ...kernel.keyword_scorer import SL_CTX_TTL, PENDING_TTL
+                from ...memory.constants import SL_CTX_TTL, PENDING_TTL
                 from ...router.core import Core
-                container = await ChatService._get_container(session_id, triggering_user_id, redis)
-                kw_bag = await Cacher.get_kw_bag(triggering_user_id, redis)
+                container = await ChatService._get_container(session_id, triggering_user_id, redis, manager)
+                effective_query = query
+                if container.trip_id:
+                    reset_msg = await redis.get_str(f"trip:{container.trip_id}:reset_pending_msg")
+                    if reset_msg:
+                        await redis.delete(f"trip:{container.trip_id}:reset_pending_msg")
+                        effective_query = f"[시스템: {reset_msg}]\n{query}"
+                kw_bag = await Cacher.get_kw_bag(container.trip_id, redis) if container.trip_id else {}
                 bot_text, new_widgets = await Core.run(
-                    current=query,
+                    current=effective_query,
                     user_id=triggering_user_id,
                     kw_bag=kw_bag,
+                    use_pipeline=use_pipeline,
                     **container.router_context(),
                 )
 
-                # sl_ctx는 Redis에 별도 저장; widget_state에는 포함하지 않음
                 sl_ctx = new_widgets.pop("_sl_ctx", {})
                 t_sl   = new_widgets.get("t_sl", "")
 
                 if t_sl and sl_ctx:
-                    # T_SL 게이트 활성: t_cd/t_mp/t_mk/t_pn을 선택 완료까지 보류
+                    # CC를 sl_ctx에 보존 → A 선택 시 꺼내서 봇 메시지로 전송
+                    sl_ctx["_cc"] = bot_text
                     pending = {
                         "t_cd": new_widgets.get("t_cd", []),
                         "t_mp": new_widgets.get("t_mp", []),
                         "t_mk": new_widgets.get("t_mk", []),
-                        "t_pn": new_widgets.get("t_pn", []),
                     }
                     await Cacher.save_pending_widgets(session_id, pending, redis, PENDING_TTL)
                     await Cacher.save_sl_ctx(session_id, sl_ctx, redis, SL_CTX_TTL)
@@ -447,13 +450,34 @@ class ChatService:
                     new_widgets["t_cd"] = prev.get("t_cd", [])
                     new_widgets["t_mp"] = prev.get("t_mp", [])
                     new_widgets["t_mk"] = prev.get("t_mk", [])
-                    new_widgets["t_pn"] = prev.get("t_pn", [])
-
-                await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=new_widgets)
-                await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
+                    new_widgets["t_pn"] = prev.get("t_pn", [])  # 선택 전까진 이전 상태 유지
+                    # 세션 컨텍스트에는 bot_text 기록 (LLM 맥락 유지), 화면 출력은 하지 않음
+                    await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=new_widgets)
+                    await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
+                    # trip-select 위젯 표시 트리거 (CC는 출력하지 않음)
+                    NotifyService.push_to_session(session_id, json.dumps({
+                        "type": "widget_update",
+                        "session_id": session_id,
+                        "widgets": {"t_sl": t_sl},
+                    }, ensure_ascii=False))
+                    return  # CC 스트리밍 없음, 메시지 저장 없음
+                else:
+                    prev = container.widget_state
+                    for key in ("t_pn", "t_cd", "t_mp", "t_mk"):
+                        if not new_widgets.get(key) and prev.get(key):
+                            new_widgets[key] = prev[key]
+                    await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=new_widgets)
+                    await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
+                    if new_widgets.get("t_pn"):
+                        NotifyService.push_to_session(session_id, json.dumps({
+                            "type": "widget_update",
+                            "session_id": session_id,
+                            "widgets": {"t_pn": new_widgets["t_pn"]},
+                        }, ensure_ascii=False))
             except Exception as e:
                 print(f"[ChatService._stream_bot_response] {session_id} 오류: {e}")
 
+            # T_SL 게이트 활성 시 위에서 return됨 → 아래는 일반 응답 전용
             bot_now = datetime.now(tz=timezone.utc)
             bot_msg_id = "msg_" + str(uuid.uuid4())[:12]
             await Cacher.save_message(session_id, {
@@ -489,7 +513,7 @@ class ChatService:
         async def _stream():
             bot_text = "죄송합니다, 응답을 생성할 수 없습니다."
             try:
-                container = await ChatService._get_container(session_id, triggering_user_id, redis)
+                container = await ChatService._get_container(session_id, triggering_user_id, redis, manager)
                 bot_text = await container.process_user_input(query)
                 await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
             except Exception as e:
@@ -525,26 +549,67 @@ class ChatService:
 
     @staticmethod
     async def select_route(session_id: str, user_id: str, choice: str, redis: Any, manager: Any) -> dict:
-        """T_SL 선택지 선택 처리: kw_bag 업데이트 → pending_widgets 적용 → SSE widget_update."""
-        from ...kernel.keyword_scorer import apply_selection, PENDING_TTL, SL_CTX_TTL, KW_BAG_TTL
+        """T_SL 선택지 처리.
+        A 선택: 조용히 적용 (CC가 이미 A안을 설명함).
+        B 선택: T_SL 텍스트를 봇 메시지로 전송 후 적용.
+        선택 버블은 양쪽 다 표시하지 않는다.
+        """
+        from ...kernel.keyword_scorer import apply_selection
+        from ...memory.constants import PENDING_TTL, SL_CTX_TTL, KW_BAG_TTL
+        from ..widget import WidgetUnit
 
         sl_ctx = await Cacher.get_sl_ctx(session_id, redis)
         if not sl_ctx:
             raise ValueError("sl_ctx_not_found")
 
-        bag = await Cacher.get_kw_bag(user_id, redis)
-        new_bag = apply_selection(choice, sl_ctx, bag)
-        await Cacher.save_kw_bag(user_id, new_bag, redis, KW_BAG_TTL)
+        # A: sl_ctx["_cc"]에서 CC 꺼냄 / B: T_SL Redis에서 읽음 (commit_turn 이전)
+        reveal_text = ""
+        if choice == 'A':
+            reveal_text = sl_ctx.get("_cc", "")
+        else:
+            reveal_text = await WidgetUnit.get_t_sl(session_id, redis)
+
+        container = await ChatService._get_container(session_id, user_id, redis, manager)
+        if container.trip_id:
+            bag = await Cacher.get_kw_bag(container.trip_id, redis)
+            new_bag = apply_selection(choice, sl_ctx, bag)
+            await Cacher.save_kw_bag(container.trip_id, new_bag, redis, KW_BAG_TTL, manager)
         await Cacher.save_sl_ctx(session_id, {}, redis, SL_CTX_TTL)
 
         pending = await Cacher.get_pending_widgets(session_id, redis)
-        container = await ChatService._get_container(session_id, user_id, redis)
         merged = dict(container.widget_state)
         merged.update(pending)
         merged["t_sl"] = ""
+        chosen_t_pn = sl_ctx.get(choice, {}).get("t_pn")
+        if chosen_t_pn:
+            merged["t_pn"] = chosen_t_pn
         merged.pop("_sl_ctx", None)
         await container.commit_turn(widget_state=merged)
         await Cacher.save_pending_widgets(session_id, {}, redis, 1)
+
+        # A/B 선택: 해당 안의 텍스트를 봇 메시지로 전송
+        if reveal_text:
+            bot_now = datetime.now(tz=timezone.utc)
+            bot_msg_id = "msg_" + str(uuid.uuid4())[:12]
+            await Cacher.save_message(session_id, {
+                "message_id":   bot_msg_id,
+                "session_id":   session_id,
+                "sender_id":    "bot",
+                "sender_name":  "AI",
+                "sender_type":  "bot",
+                "message_type": "chat",
+                "content":      reveal_text,
+                "created_at":   bot_now.isoformat(),
+            }, redis, manager)
+            NotifyService.push_to_session(session_id, json.dumps({
+                "type":        "message",
+                "sender_id":   "bot",
+                "sender_name": "AI",
+                "content":     reveal_text,
+                "msg_id":      bot_msg_id,
+                "msg_type":    "chat",
+                "ts":          bot_now.isoformat(),
+            }, ensure_ascii=False))
 
         NotifyService.push_to_session(session_id, json.dumps({
             "type": "widget_update",

@@ -58,6 +58,12 @@ export function initMapInfoResizer({ mapContainerEl, dropdownEl }) {
   }
 
   // ── 마우스 드래그 ────────────────────────────────────────────────
+  const mapFrame = document.getElementById('mapFrame');
+
+  function setIframeBlocking(on) {
+    if (mapFrame) mapFrame.style.pointerEvents = on ? 'none' : '';
+  }
+
   resizer.addEventListener('mousedown', (e) => {
     isDragging = true;
     startY = e.clientY;
@@ -66,6 +72,7 @@ export function initMapInfoResizer({ mapContainerEl, dropdownEl }) {
     container.classList.add('resizing');
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'ns-resize';
+    setIframeBlocking(true);
     e.preventDefault();
   });
 
@@ -83,12 +90,13 @@ export function initMapInfoResizer({ mapContainerEl, dropdownEl }) {
 
   window.addEventListener('mouseup', () => {
     if (!isDragging) return;
-    
+
     isDragging = false;
     resizer.classList.remove('active');
     container.classList.remove('resizing');
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
+    setIframeBlocking(false);
 
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
@@ -103,6 +111,7 @@ export function initMapInfoResizer({ mapContainerEl, dropdownEl }) {
     startMapHeight = getMapHeight();
     resizer.classList.add('active');
     container.classList.add('resizing');
+    setIframeBlocking(true);
     e.preventDefault();
   });
 
@@ -120,10 +129,11 @@ export function initMapInfoResizer({ mapContainerEl, dropdownEl }) {
 
   window.addEventListener('touchend', () => {
     if (!isDragging) return;
-    
+
     isDragging = false;
     resizer.classList.remove('active');
     container.classList.remove('resizing');
+    setIframeBlocking(false);
 
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);

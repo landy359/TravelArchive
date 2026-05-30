@@ -317,31 +317,33 @@ class Cacher:
             return 0
 
     @staticmethod
-    async def save_session_widgets(session_id: str, data: dict, redis) -> None:
-        from ..execute_unit.widget.widget_trip_clander import TripClanderWidget
-        from ..execute_unit.widget.widget_trip_select import TripSelectWidget
-        from ..execute_unit.widget.widget_trip_map import TripMapWidget
-        from ..execute_unit.widget.widget_trip_marker import TripMarkerWidget
-        from ..execute_unit.widget.widget_trip_plan import TripPlanWidget
-        await TripClanderWidget.save_to_redis(session_id, redis, data.get("t_cd", []))
-        await TripSelectWidget.save_to_redis(session_id, redis, data.get("t_sl", ""))
-        await TripMapWidget.save_to_redis(session_id, redis, data.get("t_mp", []))
-        await TripMarkerWidget.save_to_redis(session_id, redis, data.get("t_mk", []))
-        await TripPlanWidget.save_to_redis(session_id, redis, data.get("t_pn", []))
+    def _widget_scope(session_id: str, trip_id: Optional[str] = None) -> str:
+        return f"trip:{trip_id}" if trip_id else f"session:{session_id}"
 
     @staticmethod
-    async def get_session_widgets(session_id: str, redis) -> dict:
-        from ..execute_unit.widget.widget_trip_clander import TripClanderWidget
-        from ..execute_unit.widget.widget_trip_select import TripSelectWidget
-        from ..execute_unit.widget.widget_trip_map import TripMapWidget
-        from ..execute_unit.widget.widget_trip_marker import TripMarkerWidget
-        from ..execute_unit.widget.widget_trip_plan import TripPlanWidget
+    async def save_session_widgets(session_id: str, data: dict, redis, trip_id: Optional[str] = None) -> None:
+        from .constants import DATA_TTL, WIDGET_KEY_T_SL, WIDGET_KEY_T_CD, WIDGET_KEY_T_MP, WIDGET_KEY_T_MK, WIDGET_KEY_T_PN, WIDGET_KEY_T_SEL
+        scope = Cacher._widget_scope(session_id, trip_id)
+        await redis.set_json(f"{scope}:{WIDGET_KEY_T_CD}",  data.get("t_cd", []),  DATA_TTL)
+        await redis.set_json(f"{scope}:{WIDGET_KEY_T_SL}",  data.get("t_sl", ""),  DATA_TTL)
+        await redis.set_json(f"{scope}:{WIDGET_KEY_T_MP}",  data.get("t_mp", []),  DATA_TTL)
+        await redis.set_json(f"{scope}:{WIDGET_KEY_T_MK}",  data.get("t_mk", []),  DATA_TTL)
+        await redis.set_json(f"{scope}:{WIDGET_KEY_T_PN}",  data.get("t_pn", []),  DATA_TTL)
+        await redis.set_json(f"session:{session_id}:{WIDGET_KEY_T_SEL}", data.get("t_sel", {}), DATA_TTL)
+        if data.get("t_pn"):
+            await Cacher.mark_dirty_widget(session_id, "t_pn", redis)
+
+    @staticmethod
+    async def get_session_widgets(session_id: str, redis, trip_id: Optional[str] = None) -> dict:
+        from .constants import WIDGET_KEY_T_SL, WIDGET_KEY_T_CD, WIDGET_KEY_T_MP, WIDGET_KEY_T_MK, WIDGET_KEY_T_PN, WIDGET_KEY_T_SEL
+        scope = Cacher._widget_scope(session_id, trip_id)
         return {
-            "t_cd": await TripClanderWidget.load_from_redis(session_id, redis),
-            "t_sl": await TripSelectWidget.load_from_redis(session_id, redis),
-            "t_mp": await TripMapWidget.load_from_redis(session_id, redis),
-            "t_mk": await TripMarkerWidget.load_from_redis(session_id, redis),
-            "t_pn": await TripPlanWidget.load_from_redis(session_id, redis),
+            "t_cd":  await redis.get_json(f"{scope}:{WIDGET_KEY_T_CD}")  or [],
+            "t_sl":  await redis.get_json(f"{scope}:{WIDGET_KEY_T_SL}")  or "",
+            "t_mp":  await redis.get_json(f"{scope}:{WIDGET_KEY_T_MP}")  or [],
+            "t_mk":  await redis.get_json(f"{scope}:{WIDGET_KEY_T_MK}")  or [],
+            "t_pn":  await redis.get_json(f"{scope}:{WIDGET_KEY_T_PN}")  or [],
+            "t_sel": await redis.get_json(f"session:{session_id}:{WIDGET_KEY_T_SEL}") or {},
         }
 
     @staticmethod
@@ -643,16 +645,73 @@ class Cacher:
             for n in notifs
         )
 
-    # ── 키워드 선호도 백 (per-user) ──────────────────────────────
+    # ── 키워드 선호도 백 (per-trip) ──────────────────────────────
 
     @staticmethod
-    async def get_kw_bag(user_id: str, redis) -> dict:
-        data = await redis.get_json(f"user:{user_id}:kw_bag")
+    async def get_kw_bag(trip_id: str, redis) -> dict:
+        data = await redis.get_json(f"trip:{trip_id}:kw_bag")
         return data if isinstance(data, dict) else {}
 
     @staticmethod
-    async def save_kw_bag(user_id: str, bag: dict, redis, ttl: int) -> None:
-        await redis.set_json(f"user:{user_id}:kw_bag", bag, ttl)
+    async def save_kw_bag(trip_id: str, bag: dict, redis, ttl: int, manager=None) -> None:
+        await redis.set_json(f"trip:{trip_id}:kw_bag", bag, ttl)
+        if manager:
+            from .events import SaveKwBagEvent
+            manager.emit(SaveKwBagEvent(trip_id=trip_id, kw_bag=bag))
+
+    # ── plan 초기화 + 개별 일정 CRUD ────────────────────────────
+
+    @staticmethod
+    async def reset_trip_plan(trip_id: str, redis, manager) -> None:
+        """위젯 Redis 전체 삭제 + PG trip_days 삭제 + 다음 LLM 턴에 주입할 reset 메시지 저장."""
+        from .constants import (DATA_TTL, WIDGET_KEY_T_CD, WIDGET_KEY_T_MK,
+                                 WIDGET_KEY_T_MP, WIDGET_KEY_T_PN, WIDGET_KEY_T_SL)
+        from .events import ResetTripPlanEvent
+        scope = f"trip:{trip_id}"
+        for key in (WIDGET_KEY_T_PN, WIDGET_KEY_T_CD, WIDGET_KEY_T_MP, WIDGET_KEY_T_MK, WIDGET_KEY_T_SL):
+            await redis.delete(f"{scope}:{key}")
+        await redis.set_str(f"{scope}:reset_pending_msg", "사용자가 일정을 전체 초기화했습니다.", DATA_TTL)
+        manager.emit(ResetTripPlanEvent(trip_id=trip_id))
+
+    @staticmethod
+    async def upsert_trip_day(trip_id: str, day_id: str, day_number: int, target_date: str, redis, manager) -> dict:
+        from .constants import WIDGET_KEY_T_CD, WIDGET_KEY_T_PN
+        from .events import UpsertTripDayEvent
+        scope = f"trip:{trip_id}"
+        await redis.delete(f"{scope}:{WIDGET_KEY_T_PN}")
+        await redis.delete(f"{scope}:{WIDGET_KEY_T_CD}")
+        fut = _future()
+        manager.emit(UpsertTripDayEvent(trip_id=trip_id, day_id=day_id, day_number=day_number, target_date=target_date, future=fut), priority=True)
+        return await fut
+
+    @staticmethod
+    async def delete_trip_day(trip_id: str, day_id: str, redis, manager) -> dict:
+        from .constants import WIDGET_KEY_T_CD, WIDGET_KEY_T_PN
+        from .events import DeleteTripDayEvent
+        scope = f"trip:{trip_id}"
+        await redis.delete(f"{scope}:{WIDGET_KEY_T_PN}")
+        await redis.delete(f"{scope}:{WIDGET_KEY_T_CD}")
+        fut = _future()
+        manager.emit(DeleteTripDayEvent(trip_id=trip_id, day_id=day_id, future=fut), priority=True)
+        return await fut
+
+    @staticmethod
+    async def upsert_itinerary_item(trip_id: str, day_id: str, item_id: str, visit_order: int, memo: str, map_route_data: dict, redis, manager) -> dict:
+        from .constants import WIDGET_KEY_T_PN
+        from .events import UpsertItineraryItemEvent
+        await redis.delete(f"trip:{trip_id}:{WIDGET_KEY_T_PN}")
+        fut = _future()
+        manager.emit(UpsertItineraryItemEvent(day_id=day_id, item_id=item_id, visit_order=visit_order, memo=memo, map_route_data=map_route_data or {}, future=fut), priority=True)
+        return await fut
+
+    @staticmethod
+    async def delete_itinerary_item(trip_id: str, item_id: str, redis, manager) -> dict:
+        from .constants import WIDGET_KEY_T_PN
+        from .events import DeleteItineraryItemEvent
+        await redis.delete(f"trip:{trip_id}:{WIDGET_KEY_T_PN}")
+        fut = _future()
+        manager.emit(DeleteItineraryItemEvent(item_id=item_id, future=fut), priority=True)
+        return await fut
 
     # ── 선택지 컨텍스트 (per-session) ────────────────────────────
 

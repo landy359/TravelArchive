@@ -7,10 +7,11 @@ import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import bcrypt
+from psycopg2.extras import Json as PgJson
 from fastapi import FastAPI, HTTPException
 
 
@@ -817,6 +818,7 @@ class Loader:
     @staticmethod
     async def load_session_to_redis(session_id: str, postgres: Any, redis: Any) -> None:
         from .cacher import Cacher
+        from .constants import SESSION_TTL
 
         info = await Loader.get_session_info(postgres, session_id)
         if info:
@@ -826,6 +828,9 @@ class Loader:
                 "context": info.get("context_summary", ""),
                 "is_manual_title": str(info.get("is_manual_title", False)).lower(),
             }, redis)
+            trip_id = info.get("trip_id")
+            if trip_id:
+                await redis.set_str(f"session:{session_id}:trip_id", trip_id, SESSION_TTL)
 
     @staticmethod
     async def hydrate_messages_to_redis(session_id: str, postgres: Any, redis: Any, limit: int = 40) -> None:
@@ -902,6 +907,20 @@ class Loader:
                     "context_summary": meta.get("context", ""),
                     "is_manual_title": meta.get("is_manual_title", "false") == "true",
                 })
+        if "t_pn" in dirty:
+            from .constants import WIDGET_KEY_T_PN
+            # trip_id: 전용 캐시 키 → PG 순으로 조회
+            trip_id = await redis.get_str(f"session:{session_id}:trip_id")
+            if not trip_id:
+                rows = await postgres.query(
+                    "SELECT trip_id FROM sessions WHERE session_id = :sid",
+                    {"sid": session_id},
+                )
+                trip_id = rows[0].get("trip_id") if rows else None
+            scope = f"trip:{trip_id}" if trip_id else f"session:{session_id}"
+            t_pn = await redis.get_json(f"{scope}:{WIDGET_KEY_T_PN}") or []
+            if t_pn and trip_id:
+                await Loader.sync_trip_plan(postgres, trip_id, t_pn)
         if dirty:
             await redis.delete(f"session:{session_id}:dirty_widgets")
 
@@ -969,3 +988,194 @@ class Loader:
                LIMIT 200""",
             {},
         )
+
+    @staticmethod
+    async def hydrate_trip_plan_to_redis(session_id: str, postgres: Any, redis: Any) -> None:
+        """session_id → trip_id 조회 후 trip 스코프로 t_pn + t_cd hydrate."""
+        from .constants import SESSION_TTL
+        rows = await postgres.query(
+            "SELECT trip_id FROM sessions WHERE session_id = :sid",
+            {"sid": session_id},
+        )
+        trip_id = rows[0].get("trip_id") if rows else None
+        if not trip_id:
+            return
+        await redis.set_str(f"session:{session_id}:trip_id", trip_id, SESSION_TTL)
+        await Loader.hydrate_trip_plan_by_trip_id(trip_id, postgres, redis)
+
+    @staticmethod
+    async def hydrate_trip_plan_by_trip_id(trip_id: str, postgres: Any, redis: Any) -> None:
+        """trip_id로 직접 trip_days + itinerary_items → Redis t_pn + t_cd, kw_bag (이미 캐시됐으면 스킵)."""
+        from .constants import DATA_TTL, WIDGET_KEY_T_PN, WIDGET_KEY_T_CD
+
+        scope = f"trip:{trip_id}"
+        existing_pn = await redis.get_json(f"{scope}:{WIDGET_KEY_T_PN}") or []
+        existing_cd = await redis.get_json(f"{scope}:{WIDGET_KEY_T_CD}") or []
+        await Loader.load_trip_kw_bag(trip_id, postgres, redis)
+        if existing_pn and existing_cd:
+            return
+
+        day_rows = await postgres.query(
+            "SELECT day_id, day_number, target_date FROM trip_days WHERE trip_id = :trip_id ORDER BY day_number",
+            {"trip_id": trip_id},
+        )
+        if not day_rows:
+            return
+
+        t_pn = []
+        t_cd = []
+        for day_row in day_rows:
+            day_id = day_row["day_id"]
+            target_date = day_row.get("target_date")
+            if target_date and hasattr(target_date, "year"):
+                date_str = f"{target_date.year % 100:02d}{target_date.month:02d}{target_date.day:02d}"
+            else:
+                date_str = "000000"
+            t_cd.append(date_str)
+
+            item_rows = await postgres.query(
+                "SELECT visit_order, map_route_data, memo FROM itinerary_items WHERE day_id = :day_id ORDER BY visit_order",
+                {"day_id": day_id},
+            )
+            day_items = [
+                {
+                    "date":       date_str,
+                    "order":      item.get("visit_order", 0),
+                    "place":      item.get("memo", ""),
+                    "place_info": item.get("map_route_data") or {},
+                }
+                for item in item_rows
+            ]
+            t_pn.append(day_items)
+
+        if t_pn and not existing_pn:
+            await redis.set_json(f"{scope}:{WIDGET_KEY_T_PN}", t_pn, DATA_TTL)
+        if t_cd and not existing_cd:
+            await redis.set_json(f"{scope}:{WIDGET_KEY_T_CD}", t_cd, DATA_TTL)
+
+    @staticmethod
+    async def sync_trip_plan(postgres: Any, trip_id: str, t_pn: list) -> None:
+        """T_PN → trip_days + itinerary_items 전체 교체 동기화.
+        기존 trip_days 삭제(CASCADE → itinerary_items 자동 삭제) 후 재삽입.
+        """
+        if not trip_id or not t_pn:
+            return
+
+        # 1) 기존 일정 삭제 (CASCADE로 itinerary_items도 삭제됨)
+        await postgres.query(
+            "DELETE FROM trip_days WHERE trip_id = :trip_id",
+            {"trip_id": trip_id},
+        )
+
+        for day_idx, row in enumerate(t_pn):
+            if not row:
+                continue
+            day_number = day_idx + 1
+
+            # 날짜 파싱: YYMMDD → date
+            raw_date = (row[0].get("date") or "000000") if isinstance(row[0], dict) else getattr(row[0], "date", "000000")
+            try:
+                yy, mm, dd = int(raw_date[:2]), int(raw_date[2:4]), int(raw_date[4:6])
+                target_date = date(2000 + yy, mm, dd)
+            except Exception:
+                target_date = date.today()
+
+            day_id = "day_" + str(uuid.uuid4())[:8]
+            await postgres.query(
+                "INSERT INTO trip_days (day_id, trip_id, day_number, target_date) "
+                "VALUES (:day_id, :trip_id, :day_number, :target_date)",
+                {"day_id": day_id, "trip_id": trip_id, "day_number": day_number, "target_date": target_date},
+            )
+
+            for item in row:
+                d = item if isinstance(item, dict) else item.to_dict()
+                place_name = d.get("place") or d.get("place_info", {}).get("name", "")
+                pi = d.get("place_info") or {}
+                route_data = {k: pi.get(k) for k in ("lat", "lng", "address_road", "description", "category") if pi.get(k)}
+
+                item_id = "itm_" + str(uuid.uuid4())[:8]
+                route_json = json.dumps(route_data, ensure_ascii=False) if route_data else None
+                await postgres.query(
+                    "INSERT INTO itinerary_items (item_id, day_id, visit_order, memo, map_route_data, status) "
+                    "VALUES (:item_id, :day_id, :visit_order, :memo, CAST(:route AS jsonb), 'proposed')",
+                    {
+                        "item_id":     item_id,
+                        "day_id":      day_id,
+                        "visit_order": int(d.get("order", 0)),
+                        "memo":        place_name or None,
+                        "route":       route_json,
+                    },
+                )
+
+    @staticmethod
+    async def load_trip_kw_bag(trip_id: str, postgres: Any, redis: Any) -> None:
+        """trip_keyword_scores → trip:{trip_id}:kw_bag (이미 캐시됐으면 스킵)."""
+        from .constants import DATA_TTL
+        existing = await redis.get_json(f"trip:{trip_id}:kw_bag")
+        if existing is not None:
+            return
+        rows = await postgres.query(
+            "SELECT keyword, score FROM trip_keyword_scores WHERE trip_id = :tid",
+            {"tid": trip_id},
+        )
+        kw_bag = {row["keyword"]: row["score"] for row in rows}
+        await redis.set_json(f"trip:{trip_id}:kw_bag", kw_bag, DATA_TTL)
+
+    @staticmethod
+    async def save_trip_kw_bag(trip_id: str, kw_bag: dict, postgres: Any) -> None:
+        """kw_bag → keyword_encyclopedia + trip_keyword_scores (upsert)."""
+        if not kw_bag:
+            return
+        for keyword, score in kw_bag.items():
+            await postgres.query(
+                "INSERT INTO keyword_encyclopedia (keyword) VALUES (:kw) ON CONFLICT (keyword) DO NOTHING",
+                {"kw": keyword},
+            )
+            await postgres.query(
+                """INSERT INTO trip_keyword_scores (trip_id, keyword, score, updated_at)
+                   VALUES (:tid, :kw, :score, NOW())
+                   ON CONFLICT (trip_id, keyword)
+                   DO UPDATE SET score = :score, updated_at = NOW()""",
+                {"tid": trip_id, "kw": keyword, "score": float(score)},
+            )
+
+    @staticmethod
+    async def reset_trip_plan(trip_id: str, postgres: Any) -> None:
+        """trip_days 전체 삭제 (CASCADE → itinerary_items)."""
+        await postgres.query(
+            "DELETE FROM trip_days WHERE trip_id = :trip_id",
+            {"trip_id": trip_id},
+        )
+
+    @staticmethod
+    async def upsert_trip_day(trip_id: str, day_id: str, day_number: int, target_date: str, postgres: Any) -> None:
+        """trip_days row upsert. target_date: YYMMDD."""
+        try:
+            yy, mm, dd = int(target_date[:2]), int(target_date[2:4]), int(target_date[4:6])
+            td = date(2000 + yy, mm, dd)
+        except Exception:
+            td = date.today()
+        await postgres.query(
+            """INSERT INTO trip_days (day_id, trip_id, day_number, target_date)
+               VALUES (:day_id, :trip_id, :day_number, :target_date)
+               ON CONFLICT (day_id) DO UPDATE SET day_number = :day_number, target_date = :target_date""",
+            {"day_id": day_id, "trip_id": trip_id, "day_number": day_number, "target_date": td},
+        )
+
+    @staticmethod
+    async def delete_trip_day(day_id: str, postgres: Any) -> None:
+        await postgres.query("DELETE FROM trip_days WHERE day_id = :day_id", {"day_id": day_id})
+
+    @staticmethod
+    async def upsert_itinerary_item(day_id: str, item_id: str, visit_order: int, memo: str, map_route_data: dict, postgres: Any) -> None:
+        route_json = json.dumps(map_route_data, ensure_ascii=False) if map_route_data else None
+        await postgres.query(
+            """INSERT INTO itinerary_items (item_id, day_id, visit_order, memo, map_route_data, status)
+               VALUES (:item_id, :day_id, :visit_order, :memo, CAST(:route AS jsonb), 'proposed')
+               ON CONFLICT (item_id) DO UPDATE SET visit_order = :visit_order, memo = :memo, map_route_data = CAST(:route AS jsonb)""",
+            {"item_id": item_id, "day_id": day_id, "visit_order": visit_order, "memo": memo or "", "route": route_json},
+        )
+
+    @staticmethod
+    async def delete_itinerary_item(item_id: str, postgres: Any) -> None:
+        await postgres.query("DELETE FROM itinerary_items WHERE item_id = :item_id", {"item_id": item_id})

@@ -33,5 +33,6 @@ export const SidebarFolding = {
     };
 
     setupFolding(elements.toggleCalendarBtn, elements.calendarContent, isSmallHeight);
+    setupFolding(elements.togglePlanBtn, elements.planContent, false);
   },
 };

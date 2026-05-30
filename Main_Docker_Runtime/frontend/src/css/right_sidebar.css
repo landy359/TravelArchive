@@ -13,8 +13,25 @@
   backdrop-filter: blur(35px);
   -webkit-backdrop-filter: blur(35px);
   transition: width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
-  overflow: hidden !important;
+  overflow-y: auto !important; /* Total scroll on main container */
+  overflow-x: hidden !important;
   border-bottom-right-radius: 32px; /* Match main-panel radius */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(17, 24, 39, 0.15) transparent;
+}
+
+.right-sidebar::-webkit-scrollbar {
+  width: 5px;
+}
+.right-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.right-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(17, 24, 39, 0.1);
+  border-radius: 10px;
+}
+.right-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(17, 24, 39, 0.2);
 }
 
 .right-sidebar.collapsed {
@@ -60,18 +77,16 @@
 }
 
 .right-sidebar-content {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto; /* Allow content to grow naturally */
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  padding: 0 10px; /* Internal side padding */
-  container-type: inline-size;  /* 100cqw = 이 컨테이너의 폭 */
+  padding: 0 10px;
+  container-type: inline-size;
 }
 
 #kakaoMapContainer {
   width: 100%;
-  aspect-ratio: 3 / 2;                  /* 폭 : 높이 = 3 : 2 → 높이 = 폭 × 2/3 */
+  aspect-ratio: 1 / 1;
   flex-shrink: 0;
   border-radius: 12px;
   background-color: rgba(255, 255, 255, 0.4);
@@ -80,8 +95,154 @@
   position: relative;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  margin-bottom: 24px; /* Space below for better UX */
+  margin-bottom: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* ── CSS 변수: 달력과 동일한 라이트 글라스 팔레트 ─────────────── */
+#oc-host {
+  --oc-bg:         rgba(255, 255, 255, 0.40);
+  --oc-border:     rgba(255, 255, 255, 0.25);
+  --oc-shadow:     0 2px 12px rgba(0, 0, 0, 0.10);
+  --oc-btn-bg:     rgba(255, 255, 255, 0.50);
+  --oc-btn-border: rgba(0, 0, 0, 0.06);
+  --oc-text-dim:   rgba(31, 41, 55, 0.45);
+  --oc-text-mid:   rgba(31, 41, 55, 0.65);
+  --oc-text-hi:    rgba(17, 24, 39, 0.90);
+
+  width: 100%;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  background: var(--oc-bg);
+  border: 1px solid var(--oc-border);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.10);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow: visible;
+}
+
+/* 줌 바 트랙: 라이트 배경에서 보이도록 */
+#oc-host .oc-bar-track {
+  background: rgba(0, 0, 0, 0.08);
+  height: 3px;
+}
+#oc-host .oc-zoom-level {
+  color: rgba(31, 41, 55, 0.65);
+}
+
+/* 버튼 hover 오버라이드 */
+#oc-host .oc-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.80);
+  border-color: rgba(0, 0, 0, 0.10);
+  color: rgba(17, 24, 39, 0.90);
+  transform: scale(1.05);
+}
+
+/* ── 패널 레이아웃 ───────────────────────────────────────────── */
+#oc-host .oc-panel {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border: none !important;
+  background: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+#oc-host .oc-section-label { display: none; }
+#oc-host .oc-sep           { display: none; }
+
+/* ── 위치 버튼: flex:1 로 공간 채움 ─────────────────────────── */
+#oc-host [data-loc] {
+  flex: 1;
+  width: auto;
+  height: 34px;
+  border-radius: 10px;
+}
+
+/* ── 레이어 버튼 그룹: flex:3 (3개 버튼) ────────────────────── */
+#oc-host .oc-layers {
+  flex: 3;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+#oc-host .oc-layers .oc-btn-wrap {
+  flex: 1;
+  display: flex;
+}
+#oc-host .oc-layers .oc-btn {
+  flex: 1;
+  width: auto;
+  height: 34px;
+  border-radius: 10px;
+  flex-shrink: unset;
+}
+
+/* ── 줌 버튼: 원형 고정 ─────────────────────────────────────── */
+#oc-host .oc-zoom-btn {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+/* ── 줌 래퍼 ────────────────────────────────────────────────── */
+#oc-host .oc-zoom-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+/* 부모 컨텍스트에서는 바 트랙 숨김 — 숫자로 대체 */
+#oc-host .oc-zoom-wrap .oc-bar-track {
+  display: none;
+}
+
+#oc-host .oc-zoom-wrap {
+  justify-content: space-between;
+}
+
+/* 숫자를 zoom-wrap 정중앙에 고정 */
+#oc-host .oc-zoom-level {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(31, 41, 55, 0.70);
+  pointer-events: none;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* ── 좁을 때: 2행 (JS가 .oc-host--narrow 클래스 부여) ────────── */
+#oc-host.oc-host--narrow .oc-panel {
+  flex-wrap: wrap !important;
+}
+#oc-host.oc-host--narrow .oc-zoom-wrap {
+  flex-basis: 100%;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+  padding-bottom: 2px;
+}
+#oc-host.oc-host--narrow .oc-bar-track {
+  flex: 1 1 auto;
+  width: auto;
 }
 
 .right-sidebar.notransition {
@@ -126,10 +287,10 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-rows: auto 0fr;
-  overflow: hidden;
+  overflow: visible; /* Allow content to flow into parent scroll */
   border-radius: var(--radius-lg, 14px);
-  background: rgba(10, 12, 20, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.40);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -140,11 +301,105 @@
 }
 .rs-plan-content {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible; /* Disable internal scroll */
   padding: 0 12px;
 }
 .rs-plan-box.rs-open .rs-plan-content {
   padding: 8px 12px 12px;
+}
+
+.right-sidebar-content > .rs-plan-box {
+  display: none;
+}
+
+.left-plan-box {
+  margin: 12px 0 0;
+  width: 100%;
+}
+
+/* 계획 아이템 스타일 */
+.rs-plan-day-group {
+  margin-bottom: 16px;
+}
+.rs-plan-day-group:last-child {
+  margin-bottom: 4px;
+}
+.rs-plan-date-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(31, 41, 55, 0.50);
+  margin-bottom: 8px;
+  padding-left: 4px;
+  border-left: 2px solid #3b82f6;
+}
+.rs-plan-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.30);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  transition: transform 0.15s ease;
+}
+.rs-plan-item:hover {
+  transform: translateX(3px);
+  background: rgba(255, 255, 255, 0.50);
+}
+.rs-plan-order {
+  width: 18px;
+  height: 18px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.rs-plan-place {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(17, 24, 39, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rs-plan-empty {
+  font-size: 12px;
+  color: rgba(31, 41, 55, 0.40);
+  text-align: center;
+  padding: 20px 0;
+}
+
+.map-info-resizer {
+  height: 20px;
+  flex: 0 0 20px;
+  cursor: ns-resize;
+  position: relative;
+  margin-top: 2px;
+  margin-bottom: 6px;
+}
+
+.map-info-resizer::before {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.22);
+  transition: background 0.15s ease;
+}
+
+.map-info-resizer:hover::before,
+.map-info-resizer.active::before {
+  background: rgba(59, 130, 246, 0.65);
 }
 
 /* ==========================================================

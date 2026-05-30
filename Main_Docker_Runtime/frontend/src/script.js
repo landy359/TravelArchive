@@ -11,9 +11,11 @@ import { CalendarManager } from './js/calendar.js';
 import { router } from './js/router.js';
 import { ThemeManager } from './js/theme.js';
 import { initRightSidebarMarkerPanel } from './js/rightSidebarMarkerPanel.js';
+import { mountParentOverlayControls } from './js/mapOverlayControlsParent.js';
 import { mount as mountSessionInfoModal } from './widgets/session-info-modal/index.js';
 import { initMapInfoResizer } from './js/mapHeightResizer.js';
 import { NotificationManager } from './js/notification.js';
+import { ScheduleManager } from './js/schedule.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // ── OAuth 콜백: 카카오 로그인 후 /?code=... 처리 (일회성 코드 교환) ──
@@ -92,6 +94,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     calendarHeaderControls: document.getElementById('calendarHeaderControls'),
     toggleCalendarBtn: document.getElementById('toggleCalendarBtn'),
     calendarContent: document.getElementById('calendarContent'),
+    togglePlanBtn: document.getElementById('togglePlanBtn'),
+    planContent: document.getElementById('planContent'),
+    resetPlanBtn: document.getElementById('resetPlanBtn'),
     rightSidebar: document.getElementById('rightSidebar'),
     rightSidebarContent: document.getElementById('rightSidebarContent'),
     mapToggleBtn: document.getElementById('mapToggleBtn'),
@@ -461,6 +466,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       SidebarManager.initResizers(elements, config);
       SidebarManager.initFolding(elements);
       ThemeManager.init(elements);
+
+      // 여행 일정 위젯 (왼쪽 사이드바 — 달력 탭 내)
+      const leftPlanContentEl = document.getElementById('left-plan-content');
+      if (leftPlanContentEl) {
+        ScheduleManager.init(leftPlanContentEl);
+      }
+      if (elements.resetPlanBtn) {
+        elements.resetPlanBtn.addEventListener('click', () => ScheduleManager.reset());
+      }
       NotificationManager.init(elements, state);
       if (TokenManager.isLoggedIn()) {
         NotificationManager.startPolling(state, elements);
@@ -473,6 +487,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
           initRightSidebarMarkerPanel({ mapContainerEl });
           initMapInfoResizer({ mapContainerEl, dropdownEl: document.getElementById('rs-marker-dropdown') });
+          mountParentOverlayControls(document.getElementById('oc-host'));
 
           // 계획 박스 토글 (마커 패널과 동일한 동작 패턴)
           const planBox    = document.getElementById('rs-plan-box');

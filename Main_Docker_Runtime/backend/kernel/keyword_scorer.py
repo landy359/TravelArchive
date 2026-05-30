@@ -10,9 +10,6 @@ KW_SCORE_MAX     =  10
 KW_SCORE_DELTA   =   1
 KW_BAG_HINT_N    =   5
 SELECT_THRESHOLD =   3
-KW_BAG_TTL       = 86400 * 30   # 30일
-SL_CTX_TTL       = 1800         # 30분
-PENDING_TTL      = 1800         # 30분
 
 
 def _clamp(score: int) -> int:
@@ -63,10 +60,7 @@ def apply_selection(choice: str, sl_ctx: dict, bag: dict) -> dict:
     """
     if choice not in ("A", "B"):
         raise ValueError("invalid_choice")
-    rejected = "B" if choice == "A" else "A"
     new_bag = dict(bag)
     for kw in sl_ctx.get(choice, {}).get("keywords", []):
         new_bag[kw] = _clamp(new_bag.get(kw, 0) + KW_SCORE_DELTA)
-    for kw in sl_ctx.get(rejected, {}).get("keywords", []):
-        new_bag[kw] = _clamp(new_bag.get(kw, 0) - KW_SCORE_DELTA)
     return new_bag

@@ -39,8 +39,9 @@ class SessionContainer:
         self.is_manual_title: bool       = False
         self.total_user_msg_count: int   = 0
         self.past_messages: List[Dict]   = []
-        self.widget_state: Dict          = {"t_sl": "", "t_cd": [], "t_mp": [], "t_mk": [], "t_pn": []}
+        self.widget_state: Dict          = {"t_sl": "", "t_cd": [], "t_mp": [], "t_mk": [], "t_pn": [], "t_sel": {}}
         self.last_topic_change: Optional[dict] = None
+        self.trip_id: Optional[str]      = None
         self._redis = None
 
     # ── Redis ──────────────────────────────────────────────────
@@ -54,10 +55,11 @@ class SessionContainer:
             self.session_name    = meta.get("name",            "새 세션")
             self.session_context = meta.get("context",         "")
             self.is_manual_title = meta.get("is_manual_title", "false") == "true"
+        self.trip_id = await redis.get_str(f"session:{self.session_id}:trip_id")
         self.personalization_topic = await Cacher.get_personalized_topics(self.user_id, redis)
         self.past_messages         = await Cacher.get_session_buf(self.session_id, redis)
         self.total_user_msg_count  = await Cacher.get_session_msg_count(self.session_id, redis)
-        self.widget_state          = await Cacher.get_session_widgets(self.session_id, redis) or self.widget_state
+        self.widget_state          = await Cacher.get_session_widgets(self.session_id, redis, self.trip_id) or self.widget_state
 
     async def _save_meta(self) -> None:
         if not self._redis:
@@ -82,7 +84,7 @@ class SessionContainer:
         if not self._redis:
             return
         from ...memory.cacher import Cacher
-        await Cacher.save_session_widgets(self.session_id, self.widget_state, self._redis)
+        await Cacher.save_session_widgets(self.session_id, self.widget_state, self._redis, self.trip_id)
 
     # ── 외부 인터페이스 ─────────────────────────────────────────
 
@@ -166,6 +168,28 @@ class SessionContainer:
             past_chat_history=self._format_history(self.past_messages),
             current_msg_content=text,
         )
+        t_pn = self.widget_state.get("t_pn") or []
+        if t_pn:
+            pn_lines = []
+            for i, day_items in enumerate(t_pn):
+                if not day_items:
+                    continue
+                places = []
+                date_label = ""
+                for item in (day_items if isinstance(day_items, list) else []):
+                    d = item if isinstance(item, dict) else {}
+                    if d.get("place"):
+                        places.append(d["place"])
+                    if not date_label and d.get("date"):
+                        raw = d["date"]
+                        try:
+                            date_label = f"26.{raw[2:4]}.{raw[4:6]}"
+                        except Exception:
+                            date_label = raw
+                if places:
+                    pn_lines.append(f"{i+1}일차 ({date_label}): {', '.join(places)}")
+            if pn_lines:
+                prompt += "\n\n[현재 여행 일정]\n" + "\n".join(pn_lines)
         result = await self._gen_node.ask(prompt)
         if not result or result.startswith("ERROR:"):
             result = "AI 응답을 생성할 수 없습니다. 잠시 후 다시 시도해주세요."

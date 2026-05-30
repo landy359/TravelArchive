@@ -96,6 +96,10 @@ class T_PN_Item:
         )
 
 
+# ────────────────────────────────────────────────────
+# 내부 유틸
+# ────────────────────────────────────────────────────
+
 @dataclass
 class sDB_Item:
     """sDB : 정적 장소 DB 레코드"""
@@ -192,7 +196,14 @@ def _pn_to_list(matrix: List[List[T_PN_Item]]) -> list:
     return [[item.to_dict() for item in row] for row in matrix]
 
 def _pn_from_list(lst: list) -> List[List[T_PN_Item]]:
-    return [[T_PN_Item.from_dict(item) for item in row] for row in lst]
+    result = []
+    for row in lst:
+        if not isinstance(row, list):
+            continue
+        result.append([
+            T_PN_Item.from_dict(item) for item in row if isinstance(item, dict)
+        ])
+    return result
 
 
 # ────────────────────────────────────────────────────
@@ -227,21 +238,23 @@ class PC1:
 
 @dataclass
 class PC2:
-    CC:   str                    = ""                      # 현재 대화 / 쿼리
-    T_SL: str                    = ""                      # 선택지 (공백=없음)
-    T_CD: List[str]              = field(default_factory=list)  # 날짜 범위 ["YYMMDD", ...]
-    T_MP: List[str]              = field(default_factory=list)  # 지도 폴리곤 노드
-    T_MK: List[T_MK_Item]       = field(default_factory=list)  # 마커 목록
-    T_PN: List[List[T_PN_Item]] = field(default_factory=list)  # 일정표 [day][order]
+    CC:    str                    = ""                      # 현재 대화 / 쿼리
+    T_SL:  str                    = ""                      # 선택지 (공백=없음)
+    T_CD:  List[str]              = field(default_factory=list)  # 날짜 범위 ["YYMMDD", ...]
+    T_MP:  List[str]              = field(default_factory=list)  # 지도 폴리곤 노드
+    T_MK:  List[T_MK_Item]       = field(default_factory=list)  # 마커 목록
+    T_PN:  List[List[T_PN_Item]] = field(default_factory=list)  # 일정표 [day][order]
+    T_SEL: dict                   = field(default_factory=dict)  # 편집 대상 커서 {"days": [...]}
 
     def to_dict(self) -> dict:
         return {
-            "CC":   self.CC,
-            "T_SL": self.T_SL,
-            "T_CD": self.T_CD,
-            "T_MP": self.T_MP,
-            "T_MK": _mk_to_list(self.T_MK),
-            "T_PN": _pn_to_list(self.T_PN),
+            "CC":    self.CC,
+            "T_SL":  self.T_SL,
+            "T_CD":  self.T_CD,
+            "T_MP":  self.T_MP,
+            "T_MK":  _mk_to_list(self.T_MK),
+            "T_PN":  _pn_to_list(self.T_PN),
+            "T_SEL": self.T_SEL,
         }
 
     @classmethod
@@ -253,6 +266,7 @@ class PC2:
             T_MP=d.get("T_MP", []),
             T_MK=_mk_from_list(d.get("T_MK", [])),
             T_PN=_pn_from_list(d.get("T_PN", [])),
+            T_SEL=d.get("T_SEL", {}),
         )
 
 
@@ -268,15 +282,16 @@ class PC3:
     SSN_TPC:  str = ""
     SSN_PCL:  str = ""
     # PC2 필드
-    CC:   str                             = ""
-    T_SL: str                             = ""
+    CC:    str                             = ""
+    T_SL:  str                             = ""
     # None = LLM이 해당 필드를 생략함 (keep old). [] = 명시적 초기화.
-    T_CD: Optional[List[str]]              = field(default=None)
-    T_MP: Optional[List[str]]              = field(default=None)
-    T_MK: Optional[List[T_MK_Item]]       = field(default=None)
-    T_PN: Optional[List[List[T_PN_Item]]] = field(default=None)
+    T_CD:  Optional[List[str]]              = field(default=None)
+    T_MP:  Optional[List[str]]              = field(default=None)
+    T_MK:  Optional[List[T_MK_Item]]       = field(default=None)
+    T_PN:  Optional[List[List[T_PN_Item]]] = field(default=None)
+    T_SEL: dict                             = field(default_factory=dict)  # 편집 대상 커서 (입력 전용, LLM 출력 없음)
     # Port3 경로 선택 컨텍스트 (chat_service에서 꺼낸 뒤 Redis에 별도 저장, 커밋 전 제거)
-    SL_CTX: dict                           = field(default_factory=dict)
+    SL_CTX: dict                            = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -289,6 +304,7 @@ class PC3:
             "T_MP":     self.T_MP or [],
             "T_MK":     _mk_to_list(self.T_MK or []),
             "T_PN":     _pn_to_list(self.T_PN or []),
+            "T_SEL":    self.T_SEL,
         }
 
     @classmethod
@@ -303,6 +319,7 @@ class PC3:
             T_MP=d.get("T_MP", []),
             T_MK=_mk_from_list(d.get("T_MK", [])),
             T_PN=_pn_from_list(d.get("T_PN", [])),
+            T_SEL=d.get("T_SEL", {}),
         )
 
     def to_pc2(self) -> PC2:
@@ -314,6 +331,7 @@ class PC3:
             T_MP=self.T_MP or [],
             T_MK=self.T_MK or [],
             T_PN=self.T_PN or [],
+            T_SEL=self.T_SEL,
         )
 
 
@@ -328,12 +346,13 @@ class QUST:
     USR_ANAL: str = ""
     SSN_TPC:  str = ""
     SSN_PCL:  str = ""
-    CC:   str                    = ""
-    T_SL: str                    = ""
-    T_CD: List[str]              = field(default_factory=list)
-    T_MP: List[str]              = field(default_factory=list)
-    T_MK: List[T_MK_Item]       = field(default_factory=list)
-    T_PN: List[List[T_PN_Item]] = field(default_factory=list)
+    CC:    str                    = ""
+    T_SL:  str                    = ""
+    T_CD:  List[str]              = field(default_factory=list)
+    T_MP:  List[str]              = field(default_factory=list)
+    T_MK:  List[T_MK_Item]       = field(default_factory=list)
+    T_PN:  List[List[T_PN_Item]] = field(default_factory=list)
+    T_SEL: dict                   = field(default_factory=dict)
     # keyword_scorer에서 주입하는 힌트 / PPL이 채우는 파싱 결과
     kw_hint:        List[str] = field(default_factory=list)
     route_keywords: dict      = field(default_factory=dict)
@@ -341,6 +360,7 @@ class QUST:
     sDB:  List[sDB_Item]        = field(default_factory=list)
     dDB:  List[dDB_Item]        = field(default_factory=list)
     PPL:  str                   = ""
+    days: int                   = 0
 
     def to_dict(self) -> dict:
         return {
@@ -353,9 +373,9 @@ class QUST:
             "T_MP":     self.T_MP,
             "T_MK":     _mk_to_list(self.T_MK),
             "T_PN":     _pn_to_list(self.T_PN),
+            "T_SEL":    self.T_SEL,
             "sDB":      [i.to_dict() for i in self.sDB],
             "dDB":      [i.to_dict() for i in self.dDB],
             "PPL":      self.PPL,
+            "days":     self.days,
         }
-
-

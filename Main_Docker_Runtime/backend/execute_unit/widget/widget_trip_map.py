@@ -31,11 +31,11 @@ class TripMapWidget:
     # ── Redis 경로 ─────────────────────────────────────────────────
 
     @staticmethod
-    async def save_to_redis(session_id: str, redis, value: List[str]) -> None:
+    async def save_to_redis(scope_key: str, redis, value: List[str]) -> None:
         from ...memory.constants import DATA_TTL
-        await redis.set_json(f"session:{session_id}:{TripMapWidget._REDIS_KEY}", value or [], DATA_TTL)
+        await redis.set_json(f"{scope_key}:{TripMapWidget._REDIS_KEY}", value or [], DATA_TTL)
 
     @staticmethod
-    async def load_from_redis(session_id: str, redis) -> List[str]:
-        data: Optional[list] = await redis.get_json(f"session:{session_id}:{TripMapWidget._REDIS_KEY}")
+    async def load_from_redis(scope_key: str, redis) -> List[str]:
+        data: Optional[list] = await redis.get_json(f"{scope_key}:{TripMapWidget._REDIS_KEY}")
         return list(data) if data else []

@@ -34,6 +34,8 @@ _MODEL_TABLES: dict[str, str] = {
     "SessionParticipant": "session_participants",
     "Conversation": "conversations",
     "Notification": "notifications",
+    "trip_days": "trip_days",
+    "itinerary_items": "itinerary_items",
 }
 
 _NAMED_PARAM_PATTERN = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
