@@ -193,6 +193,7 @@ class Port3:
                 row = sdb_dict.get(place) or sdb_norm.get(Port3._normalize_name(place)) if place else None
                 if row:
                     item["place_info"] = {
+                        "place_id":     row.place_id,
                         "name":         row.name,
                         "address_road": row.address_road,
                         "lat":          row.lat,

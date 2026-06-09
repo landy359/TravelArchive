@@ -11,6 +11,7 @@ import { SidebarManager } from './sidebar.js';
 import { CalendarManager } from './calendar.js';
 import { showLoadingIndicator, removeLoadingIndicator, appendMessage, appendTripSelect, adjustTextareaHeight, renderFileInMsg } from './ui.js';
 import { fetchTripSelect, postTripSelect } from '../core/api/sessions.js';
+import { renderPlanPhotos } from '../widgets/place-photos/place-photos.js';
 import { SessionManager } from './session.js';
 import { ScheduleManager } from './schedule.js';
 
@@ -84,6 +85,8 @@ function _msgRole(msg, myId) {
 }
 
 export async function renderTripSelect(chatHistory, ssid) {
+  // 여행 계획이 있으면 봇 말풍선 밑에 장소 사진 스트립 렌더 (place_id 기반)
+  renderPlanPhotos(chatHistory, ssid).catch(() => {});
   const data = await fetchTripSelect(ssid);
   appendTripSelect(chatHistory, data, {
     onSelect: async (option) => {

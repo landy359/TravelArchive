@@ -102,12 +102,15 @@ export function mount(chatHistory, { text = '', sender, meta = {}, onCopySuccess
 
   // 기존 templates.js 'message' 와 본 widget 의 chat-message.html 둘 다 가능 — 일관성을 위해 widget 내부 템플릿 사용.
   // renderTemplate 가 message key 기준 [[Copy]] 등 아이콘 보간을 처리하므로 그것을 활용.
+  // 봇은 항상 정체성(아바타+이름) 표시. 유저는 팀 세션일 때만.
+  const showIdentity = isTeam || sender === 'bot';
+
   const html = renderTemplate('message', {
     sender,
     text: isFileMsg ? '' : processedText,
     senderId,
-    senderName: isTeam ? senderName : '',
-    avatarChar: isTeam ? avatarChar : '',
+    senderName: showIdentity ? senderName : '',
+    avatarChar: showIdentity ? avatarChar : '',
     time: displayTime,
   }, Icons);
 
@@ -115,7 +118,7 @@ export function mount(chatHistory, { text = '', sender, meta = {}, onCopySuccess
   const msgDiv = rowDiv.querySelector('.message');
   const copyBtn = rowDiv.querySelector('.copy-btn');
 
-  if (!isTeam) {
+  if (!showIdentity) {
     const avatar = rowDiv.querySelector('.message-avatar');
     const nameEl = rowDiv.querySelector('.message-sender-name');
     if (avatar) avatar.style.display = 'none';

@@ -21,6 +21,7 @@ from typing import List, Optional
 
 @dataclass
 class PlaceInfo:
+    place_id:     str   = ""
     name:         str   = ""
     address_road: str   = ""
     lat:          float = 0.0
@@ -30,6 +31,7 @@ class PlaceInfo:
 
     def to_dict(self) -> dict:
         return {
+            "place_id":     self.place_id,
             "name":         self.name,
             "address_road": self.address_road,
             "lat":          self.lat,
@@ -41,6 +43,7 @@ class PlaceInfo:
     @classmethod
     def from_dict(cls, d: dict) -> PlaceInfo:
         return cls(
+            place_id=d.get("place_id", ""),
             name=d.get("name", ""),
             address_road=d.get("address_road", ""),
             lat=float(d.get("lat", 0.0)),

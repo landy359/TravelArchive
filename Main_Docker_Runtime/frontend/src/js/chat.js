@@ -12,6 +12,7 @@ import {
   updateSidebarSessionTitle
 } from './ui.js';
 import { switchView, renderTripSelect } from './router.js';
+import { renderPlanPhotos } from '../widgets/place-photos/place-photos.js';
 import { SessionManager } from './session.js';
 import { attach as attachMentionDropdown } from '../widgets/mention-dropdown/index.js';
 import { CalendarManager } from './calendar.js';
@@ -94,6 +95,7 @@ export const ChatManager = {
           removeLoading();
           state.isReceiving = false;
           if (state.currentSessionId) {
+            // renderTripSelect 내부에서 사진 스트립(renderPlanPhotos)도 함께 렌더됨
             renderTripSelect(chatHistory, state.currentSessionId).catch(() => {});
           }
         }
@@ -175,6 +177,7 @@ export const ChatManager = {
           if (isPlanMsg) {
             CalendarManager.loadTripRange(state.tempSessionId);
             ScheduleManager.loadPlan(state.tempSessionId);
+            renderPlanPhotos(chatHistory, state.tempSessionId).catch(() => {});
           }
         }
       );
