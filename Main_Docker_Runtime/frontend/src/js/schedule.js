@@ -54,4 +54,10 @@ export const ScheduleManager = {
   setTripId(tripId) {
     _tripId = tripId;
   },
+
+  // 시나리오9: API 호출 없이 plan 데이터를 직접 렌더링 (공유 뷰 등)
+  setPlan(plan) {
+    if (!_ctrl) return;
+    _ctrl.setPlan(plan);
+  },
 };

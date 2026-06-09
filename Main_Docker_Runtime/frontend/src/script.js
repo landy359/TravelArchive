@@ -333,6 +333,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('ta:login', async () => {
     applyAuthGate(true);
     state.isTempMode = false;
+    // 로그아웃 시 강제 숨겼던 우측 사이드바 복원
+    if (elements.rightSidebar) elements.rightSidebar.style.display = '';
+    if (elements.rightSidebarOverlay) elements.rightSidebarOverlay.style.display = '';
 
     // 로그인 후 저장된 설정(테마·폰트·투명도) 재적용
     try {
@@ -361,6 +364,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     NotificationManager.startSSE(state, elements);
   });
 
+  // ── 강제 로그아웃 (다른 기기 로그인) ────────────────────────
+  document.addEventListener('ta:force-logout', () => {
+    // 일반 로그아웃과 동일하게 처리 (토큰 정리 + 홈 이동)
+    import('./js/api.js').then(({ BackendHooks, TokenManager }) => {
+      const rt = TokenManager.getRefreshToken?.();
+      if (rt) BackendHooks.logout?.(rt).catch(() => {});
+      TokenManager.clearTokens?.();
+    }).catch(() => {});
+    document.dispatchEvent(new CustomEvent('ta:logout'));
+  });
+
   // ── 로그아웃 이벤트: account.js → script.js 브리지 ────────
   document.addEventListener('ta:logout', () => {
     // SSE 연결 종료
@@ -374,6 +388,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.currentSessionId = null;
     state.currentTripId    = null;
     state.isTempMode       = false;
+
+    // 지도 사이드바 강제 숨김 + 마커 전체 삭제
+    if (elements.rightSidebar) {
+      elements.rightSidebar.classList.add('collapsed');
+      elements.rightSidebar.style.display = 'none';
+    }
+    if (elements.rightSidebarOverlay) elements.rightSidebarOverlay.style.display = 'none';
+    const mapIframe = document.querySelector('#kakaoMapContainer iframe');
+    mapIframe?.contentWindow?.postMessage({ type: 'DELETE_ALL_MARKERS' }, '*');
+
+    // 캘린더 초기화 (오늘 날짜로)
+    CalendarManager.loadTripRange(null);
 
     // 사이드바 세션 목록 지우기
     elements.sidebarList.innerHTML = '';

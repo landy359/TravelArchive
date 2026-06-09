@@ -8,7 +8,7 @@ import asyncio
 from typing import Any, Optional
 
 from .user_setting import UserSetting
-from ...memory.events import AccountDeleteEvent, SaveSettingsEvent
+from ...memory.events import AccountDeleteEvent, AccountDeleteRequestEvent, SaveSettingsEvent
 
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 
@@ -53,7 +53,7 @@ class UserUnit:
         return {"status": "success"}
 
     @staticmethod
-    async def delete_account(user_id: str, redis: Any, manager: Any) -> dict:
-        await UserSetting.mark_deleted(user_id, redis)
-        manager.emit(AccountDeleteEvent(user_id=user_id))
-        return {"status": "success", "message": "계정이 삭제되었습니다"}
+    async def delete_account(user_id: str, redis: Any, manager: Any, password: Optional[str] = None) -> dict:
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        manager.emit(AccountDeleteRequestEvent(user_id=user_id, password=password, future=future), priority=True)
+        return await future

@@ -37,6 +37,38 @@ function showConfirmModal({ title, message, confirmText = '확인', cancelText =
   overlay.querySelector('#_cmOk').addEventListener('click', () => { close(); onConfirm?.(); });
 }
 
+function showDeleteWithPasswordModal(onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-modal-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-modal">
+      <div class="confirm-modal-title">계정 삭제</div>
+      <div class="confirm-modal-message">
+        계정과 모든 데이터가 <b>영구적으로 삭제</b>되며 복구할 수 없습니다.<br>
+        확인을 위해 비밀번호를 입력해주세요.
+      </div>
+      <input type="password" id="_dmPw" class="input-base" placeholder="비밀번호" style="margin:12px 0 4px;width:100%;">
+      <div id="_dmErr" style="color:#ef4444;font-size:12px;min-height:16px;"></div>
+      <div class="confirm-modal-actions">
+        <button class="btn-base btn-secondary" id="_dmCancel">취소</button>
+        <button class="btn-base btn-danger" id="_dmOk">영구 삭제</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  const errEl = overlay.querySelector('#_dmErr');
+  overlay.querySelector('#_dmCancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#_dmOk').addEventListener('click', async () => {
+    const pw = overlay.querySelector('#_dmPw').value;
+    if (!pw) { errEl.textContent = '비밀번호를 입력해주세요.'; return; }
+    close();
+    await onConfirm(pw);
+  });
+  overlay.querySelector('#_dmPw').focus();
+}
+
 // ================================================================
 // 상수
 // ================================================================
@@ -540,22 +572,36 @@ function bindAccountMgmtEvents(container) {
   });
 
   container.querySelector('#deleteAccountBtn')?.addEventListener('click', () => {
-    showConfirmModal({
-      title: '계정 삭제',
-      message: '정말 삭제하시겠습니까?<br>계정과 모든 데이터가 <b>영구적으로 삭제</b>되며 복구할 수 없습니다.',
-      confirmText: '영구 삭제',
-      isDanger: true,
-      onConfirm: async () => {
+    const isMEM = TokenManager.getUserType() !== 'KKO';
+    if (isMEM) {
+      showDeleteWithPasswordModal(async (password) => {
         try {
-          await BackendHooks.deleteAccount();
+          await BackendHooks.deleteAccount(password);
           await BackendHooks.logout();
           alert('계정이 삭제되었습니다.');
           window.location.reload();
-        } catch {
-          alert('계정 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.');
+        } catch (e) {
+          alert(e?.detail || '계정 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.');
         }
-      },
-    });
+      });
+    } else {
+      showConfirmModal({
+        title: '계정 삭제',
+        message: '정말 삭제하시겠습니까?<br>계정과 모든 데이터가 <b>영구적으로 삭제</b>되며 복구할 수 없습니다.',
+        confirmText: '영구 삭제',
+        isDanger: true,
+        onConfirm: async () => {
+          try {
+            await BackendHooks.deleteAccount(null);
+            await BackendHooks.logout();
+            alert('계정이 삭제되었습니다.');
+            window.location.reload();
+          } catch {
+            alert('계정 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.');
+          }
+        },
+      });
+    }
   });
 }
 
@@ -755,7 +801,7 @@ function renderLoginView(container) {
 
     if (loginBtn) { loginBtn.disabled = true; loginBtn.textContent = '로그인 중...'; }
     try {
-      await BackendHooks.login(id, pw);
+      const loginData = await BackendHooks.login(id, pw);
       if (rememberChk?.checked) {
         localStorage.setItem('ta_remember_id', id);
       } else {
@@ -765,6 +811,13 @@ function renderLoginView(container) {
       if (profile) TokenManager.setUserInfo({ nickname: profile.nickname || '', email: profile.email || '' });
       document.dispatchEvent(new CustomEvent('ta:login'));
       window.location.hash = '#/';
+      if (loginData?.had_active_session) {
+        setTimeout(() => {
+          import('./ui.js').then(({ showToast }) =>
+            showToast('다른 기기의 연결이 해제되었습니다.')
+          );
+        }, 600);
+      }
     } catch (err) {
       if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = '로그인'; }
       alert(err.detail || '로그인에 실패했습니다.');

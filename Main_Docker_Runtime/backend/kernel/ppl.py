@@ -43,7 +43,7 @@ def _get_client(api_key: str) -> AsyncOpenAI:
     return _client_cache[api_key]
 
 
-# 실제 여행자들이 비슷한 날씨·장소 조건에서 선택한 경로를 검색하는 프롬프트
+# @PLAN 파이프라인용: 여행 경로 후보 탐색
 _SYSTEM_PROMPT = """
 You are a travel route research assistant with access to real-time web information.
 
@@ -65,6 +65,14 @@ Focus on:
 - How weather conditions affect which routes people prefer
 - Variety across the 5 candidates (e.g. rainy-day indoor heavy vs clear-day outdoor)
 
+Answer in Korean.
+""".strip()
+
+# @SEARCH 전용: 일반 웹 검색 어시스턴트
+_SEARCH_SYSTEM_PROMPT = """
+You are a helpful real-time web search assistant.
+Answer the user's question directly and accurately using up-to-date information.
+Be concise and factual. Plain text only — no markdown, no citation numbers like [1].
 Answer in Korean.
 """.strip()
 
@@ -94,13 +102,22 @@ class PPL:
         self,
         api_key: Optional[str] = None,
         model: str = "sonar",
-        temperature: float = 0.3,  # 경로 다양성을 위해 0.2 → 0.3
+        temperature: float = 0.3,
+        search_mode: bool = False,   # True: @SEARCH 전용 일반 검색
     ) -> None:
         self._api_key = api_key or os.getenv("PERPLEXITY_API_KEY") or ""
         self._model = model
         self._temperature = temperature
+        self._system_prompt = _SEARCH_SYSTEM_PROMPT if search_mode else _SYSTEM_PROMPT
 
     def _build_prompt(self, qust: "QUST") -> str:
+        # @SEARCH: 세션 컨텍스트(SSN_TPC)를 맥락으로 추가해 검색 지역 누락 방지
+        if self._system_prompt is _SEARCH_SYSTEM_PROMPT:
+            ctx_parts = []
+            if qust.SSN_TPC:
+                ctx_parts.append(f"[여행 세션 맥락: {qust.SSN_TPC}]")
+            ctx_parts.append(qust.CC or "")
+            return "\n".join(ctx_parts)
         parts = [_USER_PREFIX]
 
         if qust.SSN_TPC:
@@ -127,8 +144,20 @@ class PPL:
             if scheduled:
                 parts.append(f"기존 일정 장소: {', '.join(scheduled)}")
 
-        # sDB/dDB — 구현 완료 후 자동으로 추가됨
-        if qust.sDB:
+        if qust.sDB and isinstance(qust.sDB, dict):
+            lines = []
+            for day, cat_dict in qust.sDB.items():
+                for cat, items in cat_dict.items():
+                    for p in items:
+                        line = p.name
+                        if p.main_category:
+                            line += f" ({p.main_category})"
+                        if p.region:
+                            line += f" / {p.region}"
+                        lines.append(line)
+            if lines:
+                parts.append("방문 가능한 장소:\n" + "\n".join(lines))
+        elif qust.sDB and isinstance(qust.sDB, list):
             lines = []
             for p in qust.sDB:
                 line = p.name
@@ -137,7 +166,8 @@ class PPL:
                 if p.region:
                     line += f" / {p.region}"
                 lines.append(line)
-            parts.append("방문 가능한 장소:\n" + "\n".join(lines))
+            if lines:
+                parts.append("방문 가능한 장소:\n" + "\n".join(lines))
 
         if qust.dDB:
             lines = []
@@ -198,7 +228,7 @@ class PPL:
                 model=self._model,
                 temperature=self._temperature,
                 messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "system", "content": self._system_prompt},
                     {"role": "user", "content": prompt},
                 ],
             )

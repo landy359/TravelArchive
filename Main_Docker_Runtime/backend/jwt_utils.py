@@ -29,6 +29,7 @@ def create_access_token(user_id: str) -> str:
         "sub":  user_id,
         "type": user_id.split(":")[0],
         "jti":  str(uuid.uuid4()),
+        "iat":  int(now.timestamp()),
         "exp":  now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, ACCESS_TOKEN_SECRET_KEY, algorithm=ALGORITHM)

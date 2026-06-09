@@ -165,6 +165,73 @@ export async function router(state, elements) {
   const path = window.location.hash || '#/';
   const { chatHistory, chatInput, chatBox, pageSection } = elements;
 
+  // ── 읽기 전용 공유 링크 ──────────────────────────────────────
+  if (path.startsWith('#/shared/')) {
+    const token = path.replace('#/shared/', '');
+    if (state._sseConnection) { state._sseConnection.close(); state._sseConnection = null; }
+    switchView('chat', elements);
+    chatHistory.innerHTML = '';
+    const { showLoadingIndicator, removeLoadingIndicator, appendMessage } = await import('./ui.js');
+    const loadingId = showLoadingIndicator(chatHistory);
+    try {
+      const res = await fetch(`/api/shared/${encodeURIComponent(token)}`);
+      removeLoadingIndicator(loadingId);
+      if (!res.ok) {
+        chatHistory.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-secondary)">공유 링크가 존재하지 않거나 만료되었습니다.</div>';
+        return;
+      }
+      const data = await res.json();
+      for (const msg of (data.messages || [])) {
+        const isBot = msg.role === 'bot';
+        appendMessage(chatHistory, msg.content, msg.role, {
+          senderName: msg.sender_name || (isBot ? 'AI' : '사용자'),
+          senderId:   msg.sender_id   || '',
+          time:       msg.created_at  || '',
+          isTeam:     false,
+          sessionId:  null,
+          msgType:    msg.msg_type    || null,
+          files:      msg.files       || [],
+        });
+      }
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+      // 시나리오9: 저장된 위젯 스냅샷 렌더링 (읽기 전용)
+      const widgets = data.widgets || {};
+      if (widgets.t_cd?.length) CalendarManager.setRanges(widgets.t_cd);
+      if (widgets.t_pn?.length) {
+        // t_pn이 2D 행렬(구형 스냅샷)이면 프론트 형식으로 변환
+        let t_pn = widgets.t_pn;
+        if (Array.isArray(t_pn[0])) {
+          t_pn = t_pn.map((row, i) => ({
+            day: i + 1,
+            date: row[0]?.date || '',
+            items: row.map(it => ({ order: it.order, place: it.place, place_info: it.place_info || {} })),
+          }));
+        }
+        ScheduleManager.setPlan(t_pn);
+        if (elements.planFilter) elements.planFilter.style.display = '';
+      }
+      if (widgets.t_mk?.length) {
+        const mapIframe = document.querySelector('#kakaoMapContainer iframe');
+        if (mapIframe?.contentWindow) {
+          setTimeout(() => {
+            widgets.t_mk.forEach(m => mapIframe.contentWindow.postMessage({
+              type: 'ADD_MARKER',
+              lat: m.lat,
+              lng: m.lng,
+              title: m.title || m.name || '',
+              markerId: m.marker_id || m.markerId,
+            }, '*'));
+          }, 300);
+        }
+      }
+    } catch (err) {
+      console.error('[Share] 로드 오류:', err);
+      removeLoadingIndicator(loadingId);
+      chatHistory.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-secondary)">불러오기에 실패했습니다.</div>';
+    }
+    return;
+  }
+
   if (path.startsWith('#/chat/')) {
     const ssid = path.replace('#/chat/', '');
 
@@ -190,14 +257,16 @@ export async function router(state, elements) {
       const loadingId = showLoadingIndicator(chatHistory);
       state.currentSessionId = ssid;
 
-      CalendarManager.loadTripRange(ssid);
-      ScheduleManager.loadPlan(ssid);
       BackendHooks.markSessionRead(ssid).catch(() => {});
       SessionManager.clearUnreadDot(ssid);
 
       try {
-        // PG→Redis hydrate 선행: 부분 캐시 상태로 fetchChatHistory가 일부만 받는 race 방지
+        // openSession 먼저: session:{ssid}:trip_id 를 Redis에 기록해야
+        // CalendarManager._scope() 가 올바른 trip 스코프를 읽을 수 있음
         await BackendHooks.openSession(ssid).catch(() => {});
+        // openSession 완료 후 위젯 로드 — 이제 Redis trip_id 가 확정된 상태
+        CalendarManager.loadTripRange(ssid);
+        ScheduleManager.loadPlan(ssid);
         const [result, infoRes] = await Promise.all([
           BackendHooks.fetchChatHistory(ssid, HISTORY_PAGE, 0),
           BackendHooks._authFetch(`/api/sessions/${ssid}/info`).then(r => r.ok ? r.json() : null).catch(() => null),
@@ -218,6 +287,9 @@ export async function router(state, elements) {
       }
     } else {
       switchView('chat', elements);
+      // 시나리오7: 같은 세션으로 복귀 시 위젯 상태 재로드
+      CalendarManager.loadTripRange(ssid);
+      ScheduleManager.loadPlan(ssid);
       if (chatHistory.children.length === 0) {
         const loadingId2 = showLoadingIndicator(chatHistory);
         try {
@@ -314,6 +386,10 @@ export async function router(state, elements) {
             }
             if (event.widgets?.t_pn) {
               ScheduleManager.loadPlan(ssid);
+            }
+            if (event.widgets?.t_cd) {
+              // LLM이 여행 날짜(T_CD)를 변경했으면 캘린더 재로드
+              CalendarManager.loadTripRange(ssid);
             }
             if (event.widgets?.t_sl) {
               renderTripSelect(chatHistory, ssid).catch(() => {});

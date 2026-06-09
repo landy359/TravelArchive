@@ -102,9 +102,9 @@ class SystemUnit:
         return await ChatService.invite_user(session_id, invitee, user_id, redis, manager)
 
     @staticmethod
-    async def share_chat(session_id: str, user_id: str) -> dict[str, str | bool]:
+    async def share_chat(session_id: str, user_id: str, redis: Any) -> dict[str, str | bool]:
         from ..chat.chat_service import ChatService
-        return await ChatService.share_chat(session_id, user_id)
+        return await ChatService.share_chat(session_id, user_id, redis)
 
     @staticmethod
     async def search_users(redis: Any, manager: Any, q: str, user_id: str) -> dict[str, Any]:

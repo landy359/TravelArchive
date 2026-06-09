@@ -110,6 +110,24 @@ class TripClanderWidget:
                 if parsed is not None:
                     results.append(parsed)
 
+        # 동일 월 내 범위 종료일 처리: "M월 S일부터 E일" / "M월 S일~E일"
+        # 기존 패턴이 종료일("11일")을 월 컨텍스트 없이 추출하지 못하는 문제 보정
+        _year_ctx = current_year
+        _y = re.search(r"(\d{4})\s*년", text)
+        if _y:
+            _year_ctx = int(_y.group(1))
+        _range_re = re.compile(
+            r"(?P<month>\d{1,2})\s*월\s*(?P<start>\d{1,2})\s*일"
+            r"[^\d월]{0,20}"
+            r"(?P<end>\d{1,2})\s*일"
+        )
+        for m in _range_re.finditer(text):
+            month = int(m.group("month"))
+            end_day = int(m.group("end"))
+            parsed = TripClanderWidget._build_date(_year_ctx, month, end_day)
+            if parsed is not None:
+                results.append(parsed)
+
         return results
 
     @staticmethod

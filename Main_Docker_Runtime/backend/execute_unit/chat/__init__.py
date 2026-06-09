@@ -35,3 +35,11 @@ class ChatUnit:
     async def check_session_member(session_id: str, user_id: str, redis: Any, manager: Any) -> bool:
         from ...memory.cacher import Cacher
         return await Cacher.check_session_participant(session_id, user_id, redis, manager)
+
+    @staticmethod
+    async def get_temp_trip_plan(temp_session_id: str) -> dict:
+        return await ChatService.get_temp_trip_plan(temp_session_id)
+
+    @staticmethod
+    async def get_temp_trip_range(temp_session_id: str) -> dict:
+        return await ChatService.get_temp_trip_range(temp_session_id)

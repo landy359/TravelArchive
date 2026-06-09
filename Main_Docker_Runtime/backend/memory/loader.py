@@ -3,6 +3,7 @@
        Loader는 EventHandler(manager)에 의해서만 호출되며 Redis ↔ PG 동기화를 담당한다.
 """
 
+import asyncio
 import json
 import os
 import uuid
@@ -35,9 +36,11 @@ class Loader:
         app.state.manager = manager
 
         print("[Loader] PostgreSQL & Redis 초기화 완료")
+        _weather_task = asyncio.create_task(_weather_change_loop(pg_adapter, redis_adapter))
         try:
             yield
         finally:
+            _weather_task.cancel()
             await manager.stop()
             await redis_adapter.close()
             pg_adapter.close()
@@ -141,13 +144,15 @@ class Loader:
         _ttl = _EXP_DAYS * 24 * 3600
 
         rows = await postgres.query(
-            "SELECT up.user_id, up.nickname, u.user_type FROM user_profile up JOIN users u ON up.user_id = u.user_id WHERE up.email = :email LIMIT 1",
+            "SELECT up.user_id, up.nickname, u.user_type, u.status FROM user_profile up JOIN users u ON up.user_id = u.user_id WHERE up.email = :email LIMIT 1",
             {"email": email},
         )
         if not rows:
             raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다")
         row = rows[0]
         user_id = row["user_id"]
+        if row.get("status") == "deleted":
+            raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다")
         if row["user_type"] != "MEM":
             raise HTTPException(status_code=400, detail="SNS 연동 계정입니다. 카카오 로그인을 이용해주세요")
 
@@ -174,6 +179,12 @@ class Loader:
             raise HTTPException(status_code=403 if fail_count >= 5 else 401, detail=detail)
 
         await postgres.update("UserSecurity", {"user_id": user_id}, {"last_login_at": now, "login_fail_count": 0})
+        # 단일 기기 정책: 기존 refresh 토큰 전부 폐기 + last_login_at 갱신
+        existing = await redis.execute({"action": "smembers", "key": f"user:{user_id}:refresh_jtis"})
+        had_active_session = bool(existing.get("data"))
+        await Loader.logout_all_devices(redis, user_id)
+        login_ts = int(now.timestamp())
+        await redis.set_str(f"user:{user_id}:last_login_at", str(login_ts), _ttl)
         access_token = create_access_token(user_id)
         refresh_token, jti = create_refresh_token(user_id)
         await redis.set_str(f"auth:refresh:{jti}", user_id, _ttl)
@@ -190,6 +201,7 @@ class Loader:
             "nickname": row.get("nickname", ""),
             "email": email,
             "status": "success",
+            "had_active_session": had_active_session,
         }
 
     @staticmethod
@@ -1179,3 +1191,129 @@ class Loader:
     @staticmethod
     async def delete_itinerary_item(item_id: str, postgres: Any) -> None:
         await postgres.query("DELETE FROM itinerary_items WHERE item_id = :item_id", {"item_id": item_id})
+
+
+# ── 날씨 변화 감지 스케줄러 ──────────────────────────────────────────
+
+def _detect_weather_changes(old_entries: list, new_entries: list) -> list:
+    """12시 대표 시간대 기준으로 날씨 변화 감지. 변화 설명 리스트 반환."""
+    old_map = {(e["date"], e["time"]): e for e in old_entries}
+    changes = []
+    for new_e in new_entries:
+        if new_e.get("time") != "12":
+            continue
+        key = (new_e["date"], "12")
+        old_e = old_map.get(key)
+        if not old_e:
+            continue
+        mm = new_e["date"][4:6] if len(new_e["date"]) >= 6 else "--"
+        dd = new_e["date"][6:8] if len(new_e["date"]) >= 8 else "--"
+
+        if old_e.get("summary") != new_e.get("summary"):
+            changes.append(f"{mm}/{dd} {old_e.get('summary','?')} → {new_e.get('summary','?')}")
+            continue
+        try:
+            old_t = float(old_e.get("temperature") or 0)
+            new_t = float(new_e.get("temperature") or 0)
+            if abs(new_t - old_t) >= 3:
+                changes.append(f"{mm}/{dd} 기온 {old_t:.0f}°C→{new_t:.0f}°C")
+                continue
+        except Exception:
+            pass
+        try:
+            old_r = int(old_e.get("rain_prob") or 0)
+            new_r = int(new_e.get("rain_prob") or 0)
+            if abs(new_r - old_r) >= 20:
+                changes.append(f"{mm}/{dd} 강수확률 {old_r}%→{new_r}%")
+        except Exception:
+            pass
+    return changes
+
+
+async def _weather_change_loop(pg_adapter: Any, redis_adapter: Any) -> None:
+    """24시간마다 날씨 스냅샷을 재조회해 변화 감지 시 알림."""
+    from .cacher import Cacher
+    from ..execute_unit.system.system_notify import NotifyService
+
+    await asyncio.sleep(3600)  # 앱 시작 1시간 후 첫 실행
+    while True:
+        try:
+            result = await redis_adapter.execute({"action": "smembers", "key": "weather_snapshots:sessions"})
+            session_ids = list(result.get("data", set()))
+
+            for session_id in session_ids:
+                try:
+                    snap = await redis_adapter.get_json(f"session:{session_id}:weather_snapshot")
+                    if not snap:
+                        await redis_adapter.execute({
+                            "action": "srem", "key": "weather_snapshots:sessions", "member": session_id,
+                        })
+                        continue
+
+                    t_cd       = snap.get("t_cd", [])
+                    owner_id   = snap.get("owner_id", "")
+                    old_entries = snap.get("entries", [])
+                    if not t_cd or not owner_id or not old_entries:
+                        continue
+
+                    from ..router.protocol import QUST
+                    from ..kernel.ddb import DDB
+                    from ..kernel.db_connector import DBConnector
+
+                    qust = QUST(CC="", SSN_TPC=snap.get("ssn_tpc", ""), T_CD=t_cd, T_MK=[], T_PN=[])
+                    connector = DBConnector()
+                    try:
+                        qust = await DDB(connector).run(qust)
+                    finally:
+                        connector.close()
+
+                    if not qust.dDB:
+                        continue
+
+                    new_entries = [
+                        {
+                            "date":        w.forecast_date,
+                            "time":        w.forecast_time,
+                            "summary":     w.summary,
+                            "rain_prob":   w.rain_prob,
+                            "temperature": w.temperature,
+                        }
+                        for w in qust.dDB
+                    ]
+
+                    changes = _detect_weather_changes(old_entries, new_entries)
+
+                    # 스냅샷 항상 최신으로 갱신 (중복 알림 방지)
+                    snap["entries"] = new_entries
+                    await redis_adapter.set_json(f"session:{session_id}:weather_snapshot", snap, 2592000)
+
+                    if changes:
+                        change_text = "; ".join(changes[:3])
+                        notif_id   = "notif_" + str(uuid.uuid4())[:12]
+                        message    = f"여행 날씨 변경: {change_text}"
+                        notif_data = {
+                            "notification_id": notif_id,
+                            "user_id":         owner_id,
+                            "type":            "weather_change",
+                            "reference_type":  "session",
+                            "reference_id":    session_id,
+                            "message":         message,
+                            "is_read":         False,
+                            "created_at":      datetime.now(tz=timezone.utc).isoformat(),
+                        }
+                        await Cacher.save_notification(owner_id, notif_data, redis_adapter)
+                        NotifyService.push_to_user(owner_id, {
+                            "sub_type":  "weather_change",
+                            "message":   message,
+                            "session_id": session_id,
+                        })
+                        print(f"[WeatherScheduler] {session_id} 날씨 변화 알림: {change_text}", flush=True)
+                except Exception as _e:
+                    print(f"[WeatherScheduler] {session_id} 처리 오류: {_e}", flush=True)
+
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            print(f"[WeatherScheduler] 루프 오류: {e}", flush=True)
+
+        await asyncio.sleep(86400)  # 24시간 대기

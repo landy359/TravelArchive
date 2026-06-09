@@ -6,11 +6,18 @@ const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="40" view
   <circle fill="white" cx="14" cy="14" r="6"/>
 </svg>`;
 
+const PLAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="38" viewBox="0 0 28 40">
+  <path fill="#3B82F6" stroke="#1D4ED8" stroke-width="1.5"
+    d="M14 0C6.268 0 0 6.268 0 14c0 10.667 14 26 14 26S28 24.667 28 14C28 6.268 21.732 0 14 0z"/>
+  <circle fill="white" cx="14" cy="14" r="6"/>
+</svg>`;
+
 export class MarkerManager {
   constructor(map, polylineManager) {
     this._map   = map;
     this._poly  = polylineManager;
     this._items = new Map();
+    this._meta  = new Map();
     this._seq   = 0;
     this._image = null;
     this.activePos = null;
@@ -44,7 +51,7 @@ export class MarkerManager {
     );
   }
 
-  add(latlng, markerId, markerInfo) {
+  add(latlng, markerId, markerInfo, meta = {}) {
     const marker = new kakao.maps.Marker({
       position: latlng,
       map: this._map,
@@ -54,6 +61,7 @@ export class MarkerManager {
     kakao.maps.event.addListener(marker, 'rightclick', () => {
       marker.setMap(null);
       this._items.delete(markerId);
+      this._meta.delete(markerId);
       const rem = [...this._items.values()];
       this.activePos = rem.length ? rem[rem.length - 1].getPosition() : null;
       markerInfo.hide(markerId);
@@ -64,10 +72,11 @@ export class MarkerManager {
 
     kakao.maps.event.addListener(marker, 'click', () => {
       kakao.maps.event.preventMap();
-      markerInfo.show(latlng, markerId);
+      markerInfo.show(latlng, markerId, this._meta.get(markerId) || {});
     });
 
     this._items.set(markerId, marker);
+    this._meta.set(markerId, meta);
     this.activePos = latlng;
     this._updatePolyline();
     return marker;
@@ -88,6 +97,49 @@ export class MarkerManager {
   removeAll(markerInfo) {
     [...this._items.keys()].forEach(id => this.remove(id, markerInfo));
     this._poly?.clear();
+  }
+
+  _getPlanImage() {
+    if (this._planImage) return this._planImage;
+    this._planImage = new kakao.maps.MarkerImage(
+      `data:image/svg+xml;charset=utf-8,${encodeURIComponent(PLAN_SVG)}`,
+      new kakao.maps.Size(26, 38),
+      { offset: new kakao.maps.Point(13, 38) }
+    );
+    return this._planImage;
+  }
+
+  addPlan(latlng, markerId, meta = {}) {
+    if (this._items.has(markerId)) return this._items.get(markerId);
+    const marker = new kakao.maps.Marker({
+      position: latlng,
+      map: this._map,
+      image: this._getPlanImage(),
+      zIndex: 1,
+    });
+    kakao.maps.event.addListener(marker, 'click', () => {
+      kakao.maps.event.preventMap();
+      if (meta.name) {
+        const iw = new kakao.maps.InfoWindow({
+          content: `<div style="padding:4px 8px;font-size:12px;color:#333;white-space:nowrap;">${meta.name}</div>`
+        });
+        iw.open(this._map, marker);
+        setTimeout(() => iw.close(), 3000);
+      }
+    });
+    this._items.set(markerId, marker);
+    this._meta.set(markerId, meta);
+    return marker;
+  }
+
+  removeAllPlan() {
+    const planIds = [...this._items.keys()].filter(id => id.startsWith('plan_'));
+    planIds.forEach(id => {
+      const m = this._items.get(id);
+      if (m) m.setMap(null);
+      this._items.delete(id);
+      this._meta.delete(id);
+    });
   }
 
   async loadExisting(markerInfo) {

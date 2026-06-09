@@ -297,9 +297,9 @@ def _resolve_location(qust: "QUST", target_date: date) -> dict:
 def _location_from_place(place: str, place_info) -> dict:
     text = " ".join([
         place or "",
-        getattr(place_info, "name", "") if place_info else "",
-        getattr(place_info, "address_road", "") if place_info else "",
-        getattr(place_info, "description", "") if place_info else "",
+        getattr(place_info, "name", "") or "" if place_info else "",
+        getattr(place_info, "address_road", "") or "" if place_info else "",
+        getattr(place_info, "description", "") or "" if place_info else "",
     ])
     location = _location_from_text(text)
     if location:

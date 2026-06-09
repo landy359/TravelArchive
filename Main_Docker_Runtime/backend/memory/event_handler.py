@@ -8,6 +8,7 @@ from .constants import SESSION_TTL, USER_DATA_TTL
 from .events import (
     AcceptInviteEvent,
     AccountDeleteEvent,
+    AccountDeleteRequestEvent,
     AdminCheckEmailEvent,
     AdminListUsersEvent,
     BeforeUnloadEvent,
@@ -148,6 +149,7 @@ class EventHandler:
             case SessionBlurEvent(): await self._on_session_blur(event)
             case CacheMissEvent(): await self._on_cache_miss(event)
             case AccountDeleteEvent(): await self._on_account_delete(event)
+            case AccountDeleteRequestEvent(): await self._on_account_delete_request(event)
             case SaveSettingsEvent(): await self._on_save_settings(event)
             case LoginRequestEvent(): await self._on_login_request(event)
             case LogoutRequestEvent(): await self._on_logout_request(event)
@@ -249,6 +251,33 @@ class EventHandler:
         if await Cacher.is_account_deleted(e.user_id, self._redis):
             await Loader.mark_user_deleted(self._pg, e.user_id)
         await Cacher.delete_user_data(e.user_id, self._redis)
+
+    async def _on_account_delete_request(self, e: AccountDeleteRequestEvent) -> None:
+        try:
+            from fastapi import HTTPException
+            import bcrypt
+            # MEM 계정은 비밀번호 확인 필요
+            user_rows = await self._pg.query(
+                "SELECT u.user_type FROM users u WHERE u.user_id = :user_id LIMIT 1",
+                {"user_id": e.user_id},
+            )
+            if not user_rows:
+                raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+            user_type = user_rows[0].get("user_type", "MEM")
+            if user_type == "MEM":
+                if not e.password:
+                    raise HTTPException(status_code=400, detail="비밀번호를 입력해주세요")
+                sec_rows = await self._pg.read("UserSecurity", {"user_id": e.user_id})
+                if not sec_rows:
+                    raise HTTPException(status_code=500, detail="보안 정보 조회 실패")
+                if not bcrypt.checkpw(e.password.encode("utf-8")[:72], sec_rows[0]["password_hash"].encode("utf-8")):
+                    raise HTTPException(status_code=401, detail="비밀번호가 올바르지 않습니다")
+            await Cacher.mark_account_deleted(e.user_id, self._redis)
+            await Loader.mark_user_deleted(self._pg, e.user_id)
+            await Cacher.delete_user_data(e.user_id, self._redis)
+            e.future.set_result({"status": "success", "message": "계정이 삭제되었습니다"})
+        except Exception as ex:
+            e.future.set_exception(ex)
 
     async def _on_login_request(self, e: LoginRequestEvent) -> None:
         try:
@@ -550,6 +579,8 @@ class EventHandler:
     async def _on_invite_user(self, e: InviteUserEvent) -> None:
         try:
             result = await Loader.invite_to_session(self._pg, e.session_id, e.inviter_id, e.invitee)
+            # 초대 알림이 DB에 추가됐으므로 invitee의 Redis 알림 캐시 무효화
+            await self._redis.delete(f"user:{e.invitee}:notifications")
             e.future.set_result(result)
         except Exception as ex:
             e.future.set_exception(ex)

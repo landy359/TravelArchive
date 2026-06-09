@@ -82,10 +82,26 @@ export async function resetTripPlan(tripId) {
 export async function fetchTripRange(sessionId) {
   try {
     if (!sessionId || sessionId === 'default') return { ranges: [] };
+    // 시나리오4: 임시 세션은 인증 없이 전용 엔드포인트 사용
+    if (sessionId.startsWith('tmp_')) {
+      const res = await fetch(`/api/temp/${encodeURIComponent(sessionId)}/trip_range`);
+      if (!res.ok) return { ranges: [] };
+      return await res.json();
+    }
     const res = await authFetch(`/api/sessions/${sessionId}/trip_range`);
     if (!res.ok) return { ranges: [] };
     return await res.json();
   } catch {
     return { ranges: [] };
   }
+}
+
+export async function saveCalendarDate(sessionId, dateStr) {
+  try {
+    await authFetch(`/api/sessions/${sessionId}/calendar_date`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: dateStr }),
+    });
+  } catch { /* silent */ }
 }

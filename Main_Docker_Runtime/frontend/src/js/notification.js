@@ -25,6 +25,17 @@ export const NotificationManager = {
       onMention: (sessionId, n) => {
         if (n?.type === 'mention') elements._switchToTeamMode?.();
         window.location.hash = `#/chat/${sessionId}`;
+        if (n?.type === 'weather_change') {
+          // 세션 전환 후 @weather 자동 입력
+          setTimeout(() => {
+            const chatInput = document.getElementById('chatInput');
+            if (chatInput) {
+              chatInput.value = '@weather';
+              chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+              chatInput.focus();
+            }
+          }, 800);
+        }
       },
 
       onAccept: (sessionId) => {

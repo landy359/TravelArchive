@@ -14,6 +14,8 @@ import {
 import { switchView, renderTripSelect } from './router.js';
 import { SessionManager } from './session.js';
 import { attach as attachMentionDropdown } from '../widgets/mention-dropdown/index.js';
+import { CalendarManager } from './calendar.js';
+import { ScheduleManager } from './schedule.js';
 
 export const ChatManager = {
   async handleSend(state, elements) {
@@ -55,9 +57,9 @@ export const ChatManager = {
     chatInput.value = '';
     adjustTextareaHeight(chatInput, chatBox);
 
-    // 개인 세션이면 항상 bot 응답, 팀 세션이면 @BOT 명시 시만 bot 응답
+    // 개인 세션: 항상 bot. 팀 세션: @BOT/@PLAN/@SEARCH 명시 시만 bot
     let botMsgDiv = null;
-    const willCallBot = !isTeam || /^@BOT\s+/i.test(text);
+    const willCallBot = !isTeam || /^@(BOT|PLAN|SEARCH|WEATHER)\b/i.test(text);
     const loadingId = willCallBot ? showLoadingIndicator(chatHistory) : null;
     if (willCallBot) chatHistory.scrollTop = chatHistory.scrollHeight;
     let _loadingDone = false;
@@ -112,14 +114,19 @@ export const ChatManager = {
       state.tempSessionId = 'tmp_' + Math.random().toString(36).slice(2, 10);
     }
 
+    // 시나리오4: @PLAN 여부에 따라 위젯 표시 결정
+    const isPlanMsg = /^@PLAN\b/i.test(text.replace(/^@BOT\s+/i, '').trim());
+
     // 전용 안내 화면을 숨기고 채팅뷰로 전환
     if (elements.heroSection) elements.heroSection.style.display = 'none';
     chatHistory.style.display = 'flex';
     if (elements.chatWrap) elements.chatWrap.style.display = 'block';
     if (elements.downloadChatBtn) elements.downloadChatBtn.style.display = 'none';
     if (elements.shareChatBtn)    elements.shareChatBtn.style.display    = 'none';
-    if (elements.mapToggleBtn)    elements.mapToggleBtn.style.display    = 'none';
     if (elements.sessionInfoBtn)  elements.sessionInfoBtn.style.display  = 'none';
+    // @PLAN이 아닌 경우만 지도 버튼 숨김
+    if (!isPlanMsg && elements.mapToggleBtn) elements.mapToggleBtn.style.display = 'none';
+    if (isPlanMsg && elements.planFilter) elements.planFilter.style.display = '';
 
     const myNickname = TokenManager.getNickname() || 'Me';
     appendMessage(chatHistory, text, 'user', {
@@ -161,7 +168,15 @@ export const ChatManager = {
           }
           chatHistory.scrollTop = chatHistory.scrollHeight;
         },
-        () => { removeLoading(); state.isReceiving = false; }
+        () => {
+          removeLoading();
+          state.isReceiving = false;
+          // 시나리오4: @PLAN 응답 완료 후 위젯 갱신
+          if (isPlanMsg) {
+            CalendarManager.loadTripRange(state.tempSessionId);
+            ScheduleManager.loadPlan(state.tempSessionId);
+          }
+        }
       );
     } catch (e) {
       removeLoading();

@@ -116,6 +116,10 @@ export async function inviteUserToSession(sessionId, searchInput) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user: searchInput }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw { status: res.status, detail: data.detail || '초대에 실패했습니다' };
+    }
     return await res.json();
   } catch (error) {
     console.error('API Error (inviteUserToSession):', error);
@@ -258,6 +262,12 @@ export async function postTripSelect(sessionId, choice) {
 
 export async function fetchTripPlan(sessionId) {
   try {
+    // 시나리오4: 임시 세션은 인증 없이 전용 엔드포인트 사용
+    if (sessionId?.startsWith('tmp_')) {
+      const res = await fetch(`/api/temp/${encodeURIComponent(sessionId)}/trip_plan`);
+      if (!res.ok) return { plan: [] };
+      return await res.json();
+    }
     const res = await authFetch(`/api/sessions/${sessionId}/trip_plan`);
     if (!res.ok) return { plan: [] };
     return await res.json();

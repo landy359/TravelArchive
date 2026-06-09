@@ -1,3 +1,0 @@
-# Main_Docker_Runtime 및 NodeConnect 폴더의 변경 권한은 마스터(jun-Bridge)에게만 있음을 선언
-/Main_Docker_Runtime/ @jun-Bridge
-/NodeConnect/ @jun-Bridge

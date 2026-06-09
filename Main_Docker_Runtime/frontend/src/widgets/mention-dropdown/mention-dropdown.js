@@ -27,7 +27,10 @@ import './mention-dropdown.css';
 const CACHE_TTL_MS = 30 * 1000;
 const MAX_ITEMS    = 6;
 
-const BOT_ENTRY = { user_id: 'bot', nickname: 'BOT' };
+const BOT_ENTRY     = { user_id: 'bot',     nickname: 'BOT',     desc: '봇에게 직접 질문' };
+const PLAN_ENTRY    = { user_id: 'plan',    nickname: 'PLAN',    desc: '여행 일정 생성/수정' };
+const SEARCH_ENTRY  = { user_id: 'search',  nickname: 'SEARCH',  desc: '실시간 검색 (Perplexity)' };
+const WEATHER_ENTRY = { user_id: 'weather', nickname: 'WEATHER', desc: '여행 날짜 날씨 조회' };
 
 /**
  * @param {HTMLInputElement|HTMLTextAreaElement} inputEl
@@ -71,9 +74,18 @@ export function attach(inputEl, { getSessionId, getMyUserId, fetchParticipants }
       (p.nickname || p.user_id).toLowerCase().includes(q)
     );
 
-    // BOT 은 항상 후보에 (조건: 빈쿼리 또는 'bot' 시작)
-    const showBot = q === '' || 'bot'.startsWith(q);
-    const items = showBot ? [BOT_ENTRY, ...humans] : humans;
+    const showBot     = q === '' || 'bot'.startsWith(q);
+    const showPlan    = q === '' || 'plan'.startsWith(q);
+    const showSearch  = q === '' || 'search'.startsWith(q);
+    const showWeather = q === '' || 'weather'.startsWith(q);
+
+    const systemEntries = [
+      ...(showBot     ? [BOT_ENTRY]     : []),
+      ...(showPlan    ? [PLAN_ENTRY]    : []),
+      ...(showSearch  ? [SEARCH_ENTRY]  : []),
+      ...(showWeather ? [WEATHER_ENTRY] : []),
+    ];
+    const items = [...systemEntries, ...humans];
 
     closeDropdown();
     if (!items.length) return;
@@ -88,10 +100,14 @@ export function attach(inputEl, { getSessionId, getMyUserId, fetchParticipants }
     items.slice(0, MAX_ITEMS).forEach(p => {
       const item = document.createElement('div');
       item.className = 'mention-item';
-      item.textContent = p.nickname || p.user_id;
+      const nick = p.nickname || p.user_id;
+      if (p.desc) {
+        item.innerHTML = `<span style="font-weight:600">@${nick}</span><span style="margin-left:6px;font-size:11px;opacity:0.6">${p.desc}</span>`;
+      } else {
+        item.textContent = nick;
+      }
       item.addEventListener('mousedown', (e) => {
         e.preventDefault();
-        const nick = p.nickname || p.user_id;
         inputEl.value = val.slice(0, cursor - match[0].length) + `@${nick} ` + val.slice(cursor);
         inputEl.focus();
         closeDropdown();

@@ -62,6 +62,10 @@ class LogoutRequest(BaseModel):
     refresh_token: str
 
 
+class DeleteAccountRequest(BaseModel):
+    password: Optional[str] = None
+
+
 class TempMessageRequest(BaseModel):
     message: str
 
@@ -113,6 +117,10 @@ class MapRoutesRequest(BaseModel):
 
 class TripRangeRequest(BaseModel):
     ranges: List[Dict]
+
+
+class CalendarDateRequest(BaseModel):
+    date: Optional[str] = None  # ISO "YYYY-MM-DD"
 
 
 class TripPlanRequest(BaseModel):
@@ -187,6 +195,18 @@ async def send_temp_message(temp_session_id: str, req: TempMessageRequest):
     return await ChatUnit.send_temp_message(temp_session_id, req.message)
 
 
+@app.get("/api/temp/{temp_session_id}/trip_plan")
+async def get_temp_trip_plan(temp_session_id: str):
+    """임시 세션 여행 일정 조회 (인증 불필요)."""
+    return await ChatUnit.get_temp_trip_plan(temp_session_id)
+
+
+@app.get("/api/temp/{temp_session_id}/trip_range")
+async def get_temp_trip_range(temp_session_id: str):
+    """임시 세션 달력 범위 조회 (인증 불필요)."""
+    return await ChatUnit.get_temp_trip_range(temp_session_id)
+
+
 @app.post("/api/auth/signup")
 async def signup(req: SignUpRequest, request: Request):
     return await AuthUnit.signup({"email": req.email, "password": req.password, "nickname": req.nickname}, request.app.state.manager)
@@ -194,7 +214,12 @@ async def signup(req: SignUpRequest, request: Request):
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest, request: Request):
-    return await AuthUnit.login(req.id, req.pw, request.app.state.manager)
+    from .execute_unit.system.system_notify import NotifyService
+    result = await AuthUnit.login(req.id, req.pw, request.app.state.manager)
+    # 기존 기기가 있었으면 → 강제 로그아웃 이벤트 푸시 (SSE가 아직 열려있을 수 있음)
+    if result.get("had_active_session") and result.get("user_id"):
+        NotifyService.push_force_logout(result["user_id"])
+    return result
 
 
 @app.post("/api/auth/refresh")
@@ -322,8 +347,8 @@ async def save_travel_preferences(req: UserTravelRequest, request: Request, user
 
 
 @app.delete("/api/user/account")
-async def delete_account(request: Request, user_id: str = Depends(get_current_user)):
-    return await UserUnit.delete_account(user_id, request.app.state.redis, request.app.state.manager)
+async def delete_account(req: DeleteAccountRequest, request: Request, user_id: str = Depends(get_current_user)):
+    return await UserUnit.delete_account(user_id, request.app.state.redis, request.app.state.manager, req.password)
 
 
 @app.get("/api/context")
@@ -506,7 +531,21 @@ async def invite_user(session_id: str, req: InviteRequest, request: Request, use
 
 @app.post("/api/sessions/{session_id}/share")
 async def share_chat(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
-    return await SystemUnit.share_chat(session_id, user_id)
+    return await SystemUnit.share_chat(session_id, user_id, request.app.state.redis)
+
+
+@app.get("/api/shared/{token}")
+async def get_shared_chat(token: str, request: Request):
+    """비인증 읽기 전용 공유 링크 — 토큰으로 세션 조회 후 대화 내역 + 위젯 반환."""
+    redis = request.app.state.redis
+    session_id = await redis.get_str(f"share:{token}")
+    if not session_id:
+        raise HTTPException(status_code=404, detail="공유 링크가 존재하지 않거나 만료되었습니다")
+    messages = await Loader.get_conversation_history(request.app.state.postgres, session_id, limit=200, offset=0)
+    # 시나리오9: 저장된 위젯 스냅샷 첨부 (없으면 빈 객체)
+    widgets_raw = await redis.get_str(f"share:{token}:widgets")
+    widgets = json.loads(widgets_raw) if widgets_raw else {}
+    return {"session_id": None, "messages": messages, "widgets": widgets}
 
 
 @app.post("/api/sessions/{session_id}/open")
@@ -610,7 +649,18 @@ async def save_trip_range(session_id: str, req: TripRangeRequest, request: Reque
 
 @app.get("/api/sessions/{session_id}/trip_range")
 async def get_trip_range(session_id: str, request: Request, user_id: str = Depends(_require_session_member)):
-    return {"ranges": await WidgetUnit.get_trip_range(session_id, request.app.state.redis)}
+    from .memory.constants import DATA_TTL
+    ranges = await WidgetUnit.get_trip_range(session_id, request.app.state.redis)
+    selected_date = await request.app.state.redis.get_str(f"session:{session_id}:calendar_selected_date")
+    return {"ranges": ranges, "selected_date": selected_date}
+
+
+@app.put("/api/sessions/{session_id}/calendar_date")
+async def save_calendar_date(session_id: str, req: CalendarDateRequest, request: Request, user_id: str = Depends(_require_session_member)):
+    from .memory.constants import DATA_TTL
+    if req.date:
+        await request.app.state.redis.set_str(f"session:{session_id}:calendar_selected_date", req.date, DATA_TTL)
+    return {"success": True}
 
 
 @app.get("/api/sessions/{session_id}/trip_select")
@@ -741,6 +791,36 @@ async def serve_uploaded_file(
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
     return FileResponse(file_path)
+
+
+@app.get("/api/places/nearest")
+async def get_nearest_place(lat: float, lng: float, radius: float = 100, request: Request = None):
+    """좌표 반경 내 가장 가까운 장소 조회 (비인증, 마커 카드 정보 표시용)."""
+    rows = await request.app.state.postgres.query(
+        """SELECT name, main_category, sub_category
+           FROM places
+           WHERE geom IS NOT NULL
+             AND ST_DWithin(
+                 geom::geography,
+                 ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                 :radius
+             )
+           ORDER BY ST_Distance(
+               geom::geography,
+               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+           ) ASC
+           LIMIT 1""",
+        {"lat": lat, "lng": lng, "radius": radius},
+    )
+    if not rows:
+        return {"found": False}
+    r = rows[0]
+    return {
+        "found":         True,
+        "name":          r.get("name") or "",
+        "main_category": r.get("main_category") or "",
+        "sub_category":  r.get("sub_category") or "",
+    }
 
 
 @app.get("/")

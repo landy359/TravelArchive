@@ -105,10 +105,14 @@ export async function logoutAllDevices() {
   }
 }
 
-/** 계정 영구 삭제 */
-export async function deleteAccount() {
+/** 계정 영구 삭제. MEM 계정은 password 필수. */
+export async function deleteAccount(password = null) {
   try {
-    const res = await authFetch('/api/user/account', { method: 'DELETE' });
+    const res = await authFetch('/api/user/account', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
     if (!res.ok) throw { status: res.status, detail: (await res.json()).detail };
     return await res.json();
   } catch (error) {

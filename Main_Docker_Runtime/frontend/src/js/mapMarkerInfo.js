@@ -62,10 +62,10 @@ export function initMarkerInfo(map, _container) {
 
   const geocoder = new kakao.maps.services.Geocoder();
 
-  function _show(latlng, markerId) {
-    post({ type: 'MI_LOADING', markerId });
+  function _show(latlng, markerId, meta = {}) {
+    post({ type: 'MI_LOADING', markerId, meta });
     fetchAddressInfo(geocoder, latlng)
-      .then(data => post({ type: 'MI_DATA', markerId, payload: data }))
+      .then(data => post({ type: 'MI_DATA', markerId, payload: { ...data, ...meta } }))
       .catch(()  => post({ type: 'MI_ERROR', markerId }));
   }
 
@@ -74,8 +74,8 @@ export function initMarkerInfo(map, _container) {
   }
 
   return {
-    show(latlng, markerId)  { _show(latlng, markerId); },
-    hide(markerId)           { _remove(markerId); },
+    show(latlng, markerId, meta = {}) { _show(latlng, markerId, meta); },
+    hide(markerId)                     { _remove(markerId); },
     destroy() {},
   };
 }

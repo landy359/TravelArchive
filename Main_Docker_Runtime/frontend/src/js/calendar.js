@@ -5,6 +5,7 @@
 
 import { renderTemplate, getSessionIdFromHash } from './utils.js';
 import { BackendHooks } from './api.js';
+import { saveCalendarDate } from '../core/api/trips.js';
 import { eventBus, EVENTS } from './core/event-bus.js';
 
 let currentViewDate = new Date(); 
@@ -53,13 +54,35 @@ export const CalendarManager = {
     currentViewDate = new Date(date);
     await this.updateUI();
     // Emit event for other modules (memo, schedule managers)
-    eventBus.emit(EVENTS.CALENDAR_DATE_SELECTED, { date: selectedDate, sessionId: getSessionIdFromHash() });
+    const sessionId = getSessionIdFromHash();
+    eventBus.emit(EVENTS.CALENDAR_DATE_SELECTED, { date: selectedDate, sessionId });
     // Keep backwards-compatible callback for existing code
     if (this.onDateSelect) this.onDateSelect(selectedDate);
+    // Persist to backend (Redis)
+    if (sessionId && sessionId !== 'default') {
+      const iso = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth()+1).padStart(2,'0')}-${String(selectedDate.getDate()).padStart(2,'0')}`;
+      saveCalendarDate(sessionId, iso).catch(() => {});
+    }
   },
 
   getSelectedDate() {
     return selectedDate;
+  },
+
+  // 시나리오9: 공유 뷰 등에서 API 호출 없이 직접 달력 범위를 주입
+  setRanges(t_cd) {
+    tripRanges = (t_cd || []).map(r => {
+      if (typeof r === 'string' && r.length === 6) {
+        const yy = parseInt(r.slice(0, 2), 10);
+        const mm = parseInt(r.slice(2, 4), 10) - 1;
+        const dd = parseInt(r.slice(4, 6), 10);
+        const d = new Date(2000 + yy, mm, dd);
+        d.setHours(0, 0, 0, 0);
+        return { start: d, end: d };
+      }
+      return null;
+    }).filter(Boolean);
+    this.updateUI();
   },
 
   async refreshDots() {
@@ -70,15 +93,39 @@ export const CalendarManager = {
     if (!sessionId || sessionId === 'default') {
         tripRanges = [];
         rangeSelectionStart = null;
+        // 세션 없음 → 선택 날짜를 오늘로 초기화
+        selectedDate = new Date(referenceTodayDate);
+        selectedDate.setHours(0, 0, 0, 0);
+        currentViewDate = new Date(referenceTodayDate);
         await this.updateUI();
         return;
     }
     const data = await BackendHooks.fetchTripRange(sessionId);
-    tripRanges = (data.ranges || []).map(r => ({
-        start: new Date(r.start),
-        end: new Date(r.end)
-    }));
+    tripRanges = (data.ranges || []).map(r => {
+        // Backend stores flat "YYMMDD" strings via TripClanderWidget
+        if (typeof r === 'string' && r.length === 6) {
+            const yy = parseInt(r.slice(0, 2), 10);
+            const mm = parseInt(r.slice(2, 4), 10) - 1;
+            const dd = parseInt(r.slice(4, 6), 10);
+            const d = new Date(2000 + yy, mm, dd);
+            d.setHours(0, 0, 0, 0);
+            return { start: d, end: d };
+        }
+        // Legacy {start, end} object format
+        const s = new Date(r.start); s.setHours(0, 0, 0, 0);
+        const e = new Date(r.end);   e.setHours(0, 0, 0, 0);
+        return { start: s, end: e };
+    }).filter(r => !isNaN(r.start) && !isNaN(r.end));
     rangeSelectionStart = null;
+    // Restore persisted selected date if available
+    if (data.selected_date) {
+        const restored = new Date(data.selected_date);
+        if (!isNaN(restored)) {
+            selectedDate = restored;
+            selectedDate.setHours(0, 0, 0, 0);
+            currentViewDate = new Date(selectedDate);
+        }
+    }
     await this.updateUI();
   },
 
@@ -142,15 +189,11 @@ export const CalendarManager = {
         // Left Click: Focus & Edit
         span.onclick = async (e) => {
             e.preventDefault();
-            selectedDate = new Date(targetDate);
-            
             // Smart Jump: If clicking adjacent month day, move the view
             if (!isCurrentMonth) {
                 currentViewDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
             }
-            
-            await this.updateUI();
-            if (this.onDateSelect) this.onDateSelect(selectedDate);
+            await this.setSelectedDate(targetDate);
         };
 
         // Right Click: Range Management

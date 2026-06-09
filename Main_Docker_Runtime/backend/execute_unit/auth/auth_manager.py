@@ -34,15 +34,27 @@ _ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
+async def _check_token_validity(payload: dict, redis) -> bool:
+    """False를 반환하면 토큰 무효 (단일 기기 정책 또는 명시적 revoke)."""
+    jti = payload.get("jti")
+    if jti and await redis.get_str(f"auth:revoked:{jti}"):
+        return False
+    iat = payload.get("iat")
+    if iat:
+        user_id = payload.get("sub", "")
+        last_login = await redis.get_str(f"user:{user_id}:last_login_at")
+        if last_login and int(iat) < int(last_login):
+            return False
+    return True
+
+
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> str:
     if not token:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다")
     payload = verify_access_token(token)
-    jti = payload.get("jti")
-    if jti:
-        redis = getattr(getattr(request.app, "state", None), "redis", None)
-        if redis and await redis.get_str(f"auth:revoked:{jti}"):
-            raise HTTPException(status_code=401, detail="로그아웃된 토큰입니다")
+    redis = getattr(getattr(request.app, "state", None), "redis", None)
+    if redis and not await _check_token_validity(payload, redis):
+        raise HTTPException(status_code=401, detail="다른 기기에서 로그인되어 로그아웃되었습니다")
     return payload["sub"]
 
 
@@ -51,11 +63,9 @@ async def get_optional_user(request: Request, token: str = Depends(oauth2_scheme
         return None
     try:
         payload = verify_access_token(token)
-        jti = payload.get("jti")
-        if jti:
-            redis = getattr(getattr(request.app, "state", None), "redis", None)
-            if redis and await redis.get_str(f"auth:revoked:{jti}"):
-                return None
+        redis = getattr(getattr(request.app, "state", None), "redis", None)
+        if redis and not await _check_token_validity(payload, redis):
+            return None
         return payload["sub"]
     except HTTPException:
         return None

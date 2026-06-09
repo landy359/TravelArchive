@@ -124,6 +124,16 @@ class NotifyService:
                 pass
 
     @staticmethod
+    def push_force_logout(user_id: str, reason: str = "other_device_login") -> None:
+        """다른 기기 로그인 → 기존 접속 기기에 강제 로그아웃 이벤트 전송."""
+        event_data = json.dumps({"type": "force_logout", "reason": reason}, ensure_ascii=False)
+        for q in list(_user_notif_queues.get(user_id, [])):
+            try:
+                q.put_nowait(event_data)
+            except asyncio.QueueFull:
+                pass
+
+    @staticmethod
     async def get_user_notifications(user_id: str, redis, manager) -> list:
         from ...memory.cacher import Cacher
         return await Cacher.get_notifications(user_id, redis, manager)

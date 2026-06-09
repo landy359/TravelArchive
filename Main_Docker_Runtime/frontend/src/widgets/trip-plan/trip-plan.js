@@ -15,6 +15,44 @@
 
 import { fetchTripPlan } from '../../core/api/sessions.js';
 
+// ── 장소명 → stable ID slug ──────────────────────────────────
+function _slug(place) {
+  return (place || '').replace(/[^가-힣a-zA-Z0-9]/g, '_').slice(0, 40);
+}
+
+// ── 지도 마커 동기화 (플랜 전용 마커, 사용자 클릭 마커 불변) ──
+function _syncPlanToMap(plan) {
+  const iframe = document.querySelector('#kakaoMapContainer iframe');
+  if (!iframe?.contentWindow) return;
+
+  const post = (msg) => iframe.contentWindow.postMessage(msg, '*');
+
+  const markers = [];
+  plan.forEach((dayObj, dayIdx) => {
+    (dayObj.items || []).forEach((item) => {
+      const pi = item.place_info;
+      if (pi?.lat && pi?.lng) {
+        markers.push({
+          lat:      pi.lat,
+          lng:      pi.lng,
+          title:    item.place || pi.name || '',
+          markerId: `plan_d${dayIdx}_${_slug(item.place || pi.name || '')}`,
+        });
+      }
+    });
+  });
+
+  // plan 마커만 교체 (click_ 사용자 마커는 건드리지 않음)
+  post({ type: 'REMOVE_PLAN_MARKERS' });
+  if (!markers.length) return;
+  setTimeout(() => {
+    markers.forEach(m => post({
+      type: 'ADD_PLAN_MARKER', lat: m.lat, lng: m.lng, title: m.title, markerId: m.markerId,
+    }));
+    post({ type: 'FIT_BOUNDS', markers: markers.map(m => ({ lat: m.lat, lng: m.lng })) });
+  }, 50);
+}
+
 // ── 아이콘 ──────────────────────────────────────────────────
 const ChevronIcon = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 const PinIcon     = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
@@ -29,7 +67,7 @@ function renderEmpty(container) {
 }
 
 // ── day 아코디언 1개 생성 ───────────────────────────────────
-function buildDayEl(dayObj) {
+function buildDayEl(dayObj, onRemoveItem) {
   const { day, date, items } = dayObj;
 
   // 날짜 표시 (YYMMDD → YY.MM.DD)
@@ -123,12 +161,13 @@ function buildDayEl(dayObj) {
     empty.textContent = '일정 없음';
     content.appendChild(empty);
   } else {
-    items.forEach(item => {
+    items.forEach((item, itemIdx) => {
       const row = document.createElement('div');
       row.style.cssText = `
         display: flex; align-items: flex-start; gap: 8px;
         padding: 6px 0;
         border-bottom: 1px solid rgba(0,0,0,0.05);
+        position: relative;
       `;
 
       const orderEl = document.createElement('span');
@@ -172,6 +211,27 @@ function buildDayEl(dayObj) {
         info.appendChild(addr);
       }
 
+      // X 버튼 (아이템 개별 제거)
+      if (onRemoveItem) {
+        const removeBtn = document.createElement('button');
+        removeBtn.style.cssText = `
+          background: none; border: none; padding: 0 2px;
+          cursor: pointer; color: rgba(31,41,55,0.30);
+          font-size: 13px; line-height: 1; flex-shrink: 0;
+          display: flex; align-items: center;
+          transition: color 0.15s;
+        `;
+        removeBtn.textContent = '×';
+        removeBtn.title = '일정에서 제거';
+        removeBtn.addEventListener('mouseenter', () => { removeBtn.style.color = 'rgba(239,68,68,0.8)'; });
+        removeBtn.addEventListener('mouseleave', () => { removeBtn.style.color = 'rgba(31,41,55,0.30)'; });
+        removeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          onRemoveItem(day - 1, itemIdx);  // dayIdx는 day(1-indexed) - 1
+        });
+        row.appendChild(removeBtn);
+      }
+
       row.appendChild(orderEl);
       row.appendChild(pinWrap);
       row.appendChild(info);
@@ -202,12 +262,53 @@ export function mount({ planContentEl }) {
   if (!planContentEl) return { loadPlan: () => {}, destroy: () => {} };
 
   let _currentSessionId = null;
+  let _currentPlan = [];   // 현재 플랜 상태 (mutable)
+
+  function _renderPlan(plan) {
+    planContentEl.innerHTML = '';
+    if (!plan || plan.length === 0 || plan.every(d => d.items.length === 0)) {
+      renderEmpty(planContentEl);
+      return;
+    }
+    plan.forEach(dayObj => {
+      const el = buildDayEl(dayObj, _onRemoveItem);
+      planContentEl.appendChild(el);
+    });
+    const firstHeader = planContentEl.querySelector('.tp-day-header');
+    firstHeader?.click();
+  }
+
+  async function _onRemoveItem(dayIdx, itemIdx) {
+    if (!_currentPlan[dayIdx]) return;
+
+    _currentPlan[dayIdx].items.splice(itemIdx, 1);
+    _currentPlan[dayIdx].items.forEach((it, i) => { it.order = i + 1; });
+
+    // 플랜 마커 전체 재동기화 (stable ID 사용 — index drift 없음)
+    _syncPlanToMap(_currentPlan);
+
+    if (_currentSessionId) {
+      try {
+        const { saveTripPlan } = await import('../../core/api/sessions.js');
+        const raw = _currentPlan.map(d => d.items.map(it => ({
+          date:       d.date || '',
+          order:      it.order,
+          place:      it.place || '',
+          place_info: it.place_info || {},
+        })));
+        await saveTripPlan(_currentSessionId, raw);
+      } catch (e) { console.warn('[TripPlan] 저장 실패:', e); }
+    }
+
+    _renderPlan(_currentPlan);
+  }
 
   async function loadPlan(sessionId) {
     _currentSessionId = sessionId;
     planContentEl.innerHTML = '';
 
     if (!sessionId) {
+      _currentPlan = [];
       renderEmpty(planContentEl);
       return;
     }
@@ -216,22 +317,11 @@ export function mount({ planContentEl }) {
       const data = await fetchTripPlan(sessionId);
       const plan = data?.plan || [];
 
-      // 세션 전환 도중 응답이 왔으면 버림
       if (_currentSessionId !== sessionId) return;
 
-      if (!plan || plan.length === 0 || plan.every(d => d.items.length === 0)) {
-        renderEmpty(planContentEl);
-        return;
-      }
-
-      plan.forEach(dayObj => {
-        const el = buildDayEl(dayObj);
-        planContentEl.appendChild(el);
-      });
-
-      // 첫 번째 day 자동 열기
-      const firstHeader = planContentEl.querySelector('.tp-day-header');
-      firstHeader?.click();
+      _currentPlan = plan;
+      _renderPlan(plan);
+      _syncPlanToMap(plan);
 
     } catch (e) {
       console.warn('[TripPlanWidget] loadPlan 실패:', e);
@@ -239,13 +329,48 @@ export function mount({ planContentEl }) {
     }
   }
 
+  // plan 마커는 addPlan()으로 생성 — rightclick 없으므로 ta:plan-marker-removed 발생 안 함
+  // 이 핸들러는 안전 장치용으로만 유지
+  const _onMarkerRemoved = (e) => {
+    const { markerId } = e.detail;
+    if (!markerId?.startsWith('plan_')) return;
+    const m = markerId.match(/^plan_d(\d+)_(.+)$/);
+    if (!m) return;
+    const dayIdx = parseInt(m[1], 10);
+    const slug   = m[2];
+    if (!_currentPlan[dayIdx]) return;
+    const itemIdx = _currentPlan[dayIdx].items.findIndex(it => _slug(it.place) === slug);
+    if (itemIdx < 0) return;
+    _currentPlan[dayIdx].items.splice(itemIdx, 1);
+    _currentPlan[dayIdx].items.forEach((it, i) => { it.order = i + 1; });
+    _syncPlanToMap(_currentPlan);
+    _renderPlan(_currentPlan);
+    if (_currentSessionId) {
+      import('../../core/api/sessions.js').then(({ saveTripPlan }) => {
+        const raw = _currentPlan.map(d => d.items.map(it => ({
+          date: d.date || '', order: it.order, place: it.place || '', place_info: it.place_info || {},
+        })));
+        saveTripPlan(_currentSessionId, raw).catch(() => {});
+      });
+    }
+  };
+  window.addEventListener('ta:plan-marker-removed', _onMarkerRemoved);
+
+  // 시나리오9: API 호출 없이 plan 데이터를 직접 주입 (공유 뷰 등)
+  function setPlan(plan) {
+    _currentPlan = plan || [];
+    _renderPlan(_currentPlan);
+    if (_currentPlan.length) _syncPlanToMap(_currentPlan);
+  }
+
   function destroy() {
     planContentEl.innerHTML = '';
     _currentSessionId = null;
+    _currentPlan = [];
+    window.removeEventListener('ta:plan-marker-removed', _onMarkerRemoved);
   }
 
-  // 초기 렌더
   renderEmpty(planContentEl);
 
-  return { loadPlan, destroy };
+  return { loadPlan, setPlan, destroy };
 }

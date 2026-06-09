@@ -44,6 +44,13 @@ class CacheMissEvent:
 class AccountDeleteEvent:
     user_id: str
 
+@dataclass
+class AccountDeleteRequestEvent:
+    """비밀번호 확인 후 계정 삭제. MEM 계정만 password 검증, KKO는 None 허용."""
+    user_id:  str
+    password: Optional[str]
+    future:   asyncio.Future
+
 
 # ── Auth 요청 이벤트 (Future 기반, priority queue 전용) ──────────
 

@@ -131,6 +131,17 @@ async def kakao_callback(
         return lookup
 
     user_id = lookup["user_id"]
+    # 단일 기기 정책: 기존 refresh 토큰 전부 폐기 + last_login_at 갱신
+    from ...memory.loader import Loader
+    from ...execute_unit.system.system_notify import NotifyService
+    from datetime import datetime, timezone
+    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+    # 기존 세션 있으면 강제 로그아웃 이벤트 먼저 푸시
+    existing = await redis.execute({"action": "smembers", "key": f"user:{user_id}:refresh_jtis"})
+    if existing.get("data"):
+        NotifyService.push_force_logout(user_id)
+    await Loader.logout_all_devices(redis, user_id)
+    await redis.set_str(f"user:{user_id}:last_login_at", str(now_ts), _TTL_REFRESH)
     access_token = create_access_token(user_id)
     refresh_token, jti = create_refresh_token(user_id)
 

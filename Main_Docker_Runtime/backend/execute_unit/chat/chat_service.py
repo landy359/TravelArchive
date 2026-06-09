@@ -30,6 +30,71 @@ _MAX_TEMP_SESSIONS = 200
 _BACKGROUND_TASKS: set[asyncio.Task] = set()  # create_task GC 방지
 
 _ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+def _format_weather_raw(items) -> str:
+    """dDB_Item 리스트 → LLM 입력·스냅샷 비교용 원시 텍스트."""
+    from collections import defaultdict
+    by_date: dict = defaultdict(list)
+    for w in items:
+        by_date[w.forecast_date].append(w)
+    lines = []
+    for date_key in sorted(by_date):
+        day_items = sorted(by_date[date_key], key=lambda x: x.forecast_time)
+        mm, dd = date_key[4:6], date_key[6:8]
+        lines.append(f"\n{mm}월 {dd}일")
+        for w in day_items:
+            rain = f", 강수확률 {w.rain_prob}%" if w.rain_prob else ""
+            lines.append(f"  {w.forecast_time}시: {w.summary}, 기온 {w.temperature}°C{rain}")
+    return "\n".join(lines).strip() or "날씨 정보가 없습니다."
+
+
+_WEATHER_SUMMARY_PROMPT = (
+    "너는 여행 날씨 안내 도우미야. 아래 날씨 데이터를 여행자를 위해 자연스럽고 친절하게 요약해줘.\n"
+    "규칙:\n"
+    "- 날짜별로 한 줄~두 줄. 시간대별 나열 절대 금지.\n"
+    "- 대표 기온(최저~최고 범위)과 날씨 개황만 간결하게.\n"
+    "- 강수확률 20% 이상인 날은 우산 준비 한마디 추가.\n"
+    "- '중기예보' 표시 날짜는 마지막에 '(중기예보 기준, 실제와 다를 수 있음)' 한 번만 표시.\n"
+    "- 영어 단어 절대 금지. 순한국어만.\n"
+    "- 전체 100~200자 이내.\n"
+    "\n[날씨 데이터]\n{raw}"
+)
+
+
+async def _summarize_weather_with_llm(raw_text: str) -> str:
+    """날씨 원시 텍스트 → LLM 자연어 요약."""
+    from ...kernel.llm import LLM
+    from setting.config import LLM_MODEL_GENERATION, GENERATION_API_KEY
+    prompt = _WEATHER_SUMMARY_PROMPT.format(raw=raw_text)
+    try:
+        result = await LLM(model_name=LLM_MODEL_GENERATION, api_key=GENERATION_API_KEY).ask(prompt)
+        return result.strip() if result and not result.startswith("ERROR:") else raw_text
+    except Exception as e:
+        print(f"[WeatherService] LLM 요약 실패: {e}", flush=True)
+        return raw_text
+
+
+async def _save_weather_snapshot(session_id: str, owner_id: str, t_cd: list, ssn_tpc: str, ddb_items, redis) -> None:
+    """날씨 스냅샷 저장. 24h 변화 감지 스케줄러용."""
+    snapshot = {
+        "session_id": session_id,
+        "owner_id":   owner_id,
+        "t_cd":       t_cd,
+        "ssn_tpc":    ssn_tpc,
+        "entries": [
+            {
+                "date":        w.forecast_date,
+                "time":        w.forecast_time,
+                "summary":     w.summary,
+                "rain_prob":   w.rain_prob,
+                "temperature": w.temperature,
+            }
+            for w in ddb_items
+        ],
+    }
+    await redis.set_json(f"session:{session_id}:weather_snapshot", snapshot, 2592000)
+    await redis.execute({"action": "sadd", "key": "weather_snapshots:sessions", "member": session_id})
 _EXT_TO_MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
 
 
@@ -68,13 +133,51 @@ class ChatService:
         container, _ = _temp_sessions[temp_session_id]
         _temp_sessions[temp_session_id] = (container, now_ts)  # 접근 시마다 TTL 갱신
 
+        # 시나리오4: @PLAN 또는 기존 일정이 있으면 Core.run(Router) 사용
+        use_pipeline = bool(_re.match(r'^@PLAN', message, _re.IGNORECASE))
+        content = _re.sub(r'^@PLAN\s*', '', message, flags=_re.IGNORECASE).strip() if use_pipeline else message
+
         async def _stream():
-            response_text = await container.process_user_input(message)
-            for char in response_text:
+            if use_pipeline or container.widget_state.get("t_pn"):
+                from ...router.core import Core
+                bot_text, new_widgets = await Core.run(
+                    current=content,
+                    use_pipeline=use_pipeline,
+                    **container.router_context(),
+                )
+                new_widgets.pop("_sl_ctx", None)
+                await container.commit_turn(user_text=content, bot_text=bot_text, widget_state=new_widgets)
+            else:
+                bot_text = await container.process_user_input(content)
+            for char in bot_text:
                 yield char
                 await asyncio.sleep(0.03)
 
         return StreamingResponse(_stream(), media_type="text/plain")
+
+    @staticmethod
+    async def get_temp_trip_plan(temp_session_id: str) -> dict:
+        """임시 세션 여행 일정 반환 (프론트 포맷)."""
+        entry = _temp_sessions.get(temp_session_id)
+        if not entry:
+            return {"plan": []}
+        container, _ = entry
+        from ..widget.widget_trip_plan import TripPlanWidget
+        t_pn_raw = container.widget_state.get("t_pn", [])
+        if not t_pn_raw:
+            return {"plan": []}
+        widget = TripPlanWidget()
+        widget.set_for_llm(t_pn_raw)
+        return {"plan": widget.get_for_front()}
+
+    @staticmethod
+    async def get_temp_trip_range(temp_session_id: str) -> dict:
+        """임시 세션 달력 범위 반환."""
+        entry = _temp_sessions.get(temp_session_id)
+        if not entry:
+            return {"ranges": [], "selected_date": None}
+        container, _ = entry
+        return {"ranges": container.widget_state.get("t_cd", []), "selected_date": None}
 
     @staticmethod
     async def get_session_list(trip_id: Optional[str], user_id: str, redis: Any, manager: Any) -> dict[str, Any]:
@@ -246,8 +349,31 @@ class ChatService:
         return {"success": True, "session_id": session_id, "invitee": invitee, "notification_id": result.get("notification_id")}
 
     @staticmethod
-    async def share_chat(session_id: str, user_id: str) -> dict[str, str | bool]:
-        return {"success": True, "share_url": f"/share/{session_id}"}
+    async def share_chat(session_id: str, user_id: str, redis: Any) -> dict[str, str | bool]:
+        import secrets
+        from ...memory.constants import USER_ANALYSIS_TTL  # 7일 재사용
+        from ...memory.cacher import Cacher
+        token = secrets.token_urlsafe(24)
+        await redis.set_str(f"share:{token}", session_id, USER_ANALYSIS_TTL)
+        # 시나리오9: 공유 시점의 위젯 상태(달력·일정)도 함께 저장
+        try:
+            from ..widget.widget_trip_plan import TripPlanWidget as _TW
+            trip_id = await redis.get_str(f"session:{session_id}:trip_id")
+            ws = await Cacher.get_session_widgets(session_id, redis, trip_id)
+            if ws:
+                # t_pn은 Redis에 2D 행렬(LLM 내부 형식)로 저장됨.
+                # 프론트 renderPlan은 [{day, date, items:[...]}] 형식을 요구하므로 변환.
+                tw = _TW()
+                tw.set_for_llm(ws.get("t_pn", []))
+                snap = {
+                    "t_cd": ws.get("t_cd", []),
+                    "t_pn": tw.get_for_front(),
+                    "t_mk": ws.get("t_mk", []),
+                }
+                await redis.set_str(f"share:{token}:widgets", json.dumps(snap, ensure_ascii=False), USER_ANALYSIS_TTL)
+        except Exception:
+            pass
+        return {"success": True, "share_url": f"/#/shared/{token}"}
 
     @staticmethod
     async def _get_container(session_id: str, user_id: str, redis: Any, manager: Any = None) -> SessionContainer:
@@ -296,6 +422,16 @@ class ChatService:
 
         # 전각 @(＠, U+FF20)를 일반 @로 정규화
         message = message.replace('＠', '@')
+
+        # @SEARCH 는 PPL-only (SDB/DDB/LLM 없음)
+        if _re.match(r'^@SEARCH\s+', message, _re.IGNORECASE):
+            query = _re.sub(r'^@SEARCH\s+', '', message, flags=_re.IGNORECASE).strip()
+            return await ChatService._ppl_search_response(session_id, query, user_id, redis, manager)
+
+        # @WEATHER — DDB 날씨 조회 (LLM 없음)
+        if _re.match(r'^@WEATHER\b', message, _re.IGNORECASE):
+            query = _re.sub(r'^@WEATHER\s*', '', message, flags=_re.IGNORECASE).strip()
+            return await ChatService._weather_response(session_id, query, user_id, redis, manager)
 
         if not is_team:
             content = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
@@ -410,6 +546,124 @@ class ChatService:
         ))
 
     @staticmethod
+    async def _ppl_search_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
+        """@SEARCH — PPL(Perplexity)만 실행, LLM 없음."""
+        async def _stream():
+            bot_text = "검색 결과를 가져올 수 없습니다."
+            try:
+                from ...router.protocol import QUST
+                from ...kernel.ppl import PPL
+                container = await ChatService._get_container(session_id, triggering_user_id, redis, manager)
+                ws = container.widget_state
+                qust = QUST(
+                    CC=query,
+                    SSN_TPC=container.session_topic or "",
+                    T_CD=ws.get("t_cd") or [],
+                    # T_MK/T_PN은 typed 객체가 필요해 raw dict를 넘기면 AttributeError 발생
+                    # @SEARCH 검색 컨텍스트에는 CC + T_CD + SSN_TPC면 충분
+                    T_MK=[],
+                    T_PN=[],
+                )
+                qust = await PPL(search_mode=True).run(qust)
+                bot_text = qust.PPL or "검색 결과가 없습니다."
+                await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=ws)
+                await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
+            except Exception as e:
+                print(f"[PPL Search] 오류: {e}", flush=True)
+
+            bot_now    = datetime.now(tz=timezone.utc)
+            bot_msg_id = "msg_" + str(uuid.uuid4())[:12]
+            await Cacher.save_message(session_id, {
+                "message_id":   bot_msg_id,
+                "session_id":   session_id,
+                "sender_id":    None,
+                "sender_name":  "AI",
+                "sender_type":  "ai",
+                "message_type": "text",
+                "content":      bot_text,
+                "created_at":   bot_now.isoformat(),
+            }, redis, manager)
+            NotifyService.push_to_session(session_id, json.dumps({
+                "type":        "message",
+                "sender_id":   "bot",
+                "sender_name": "AI",
+                "content":     bot_text,
+                "msg_id":      bot_msg_id,
+                "ts":          bot_now.isoformat(),
+            }, ensure_ascii=False), exclude_user=triggering_user_id)
+
+            for char in bot_text:
+                yield char.encode()
+                await asyncio.sleep(0.02)
+
+        return StreamingResponse(_stream(), media_type="text/plain")
+
+    @staticmethod
+    async def _weather_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any) -> StreamingResponse:
+        """@WEATHER — DDB 날씨 조회, LLM 없음."""
+        async def _stream():
+            bot_text = "날씨 정보를 가져올 수 없습니다."
+            try:
+                from ...router.protocol import QUST
+                from ...kernel.ddb import DDB
+                from ...kernel.db_connector import DBConnector
+                from ...execute_unit.widget.widget_trip_clander import TripClanderWidget
+
+                container = await ChatService._get_container(session_id, triggering_user_id, redis, manager)
+                ws = container.widget_state
+
+                t_cd = ws.get("t_cd") or []
+                if not t_cd and query:
+                    t_cd = TripClanderWidget._normalize_dates(query) or []
+
+                qust = QUST(CC=query, SSN_TPC=container.session_topic or "", T_CD=t_cd, T_MK=[], T_PN=[])
+                connector = DBConnector()
+                try:
+                    qust = await DDB(connector).run(qust)
+                finally:
+                    connector.close()
+
+                if qust.dDB:
+                    raw_text = _format_weather_raw(qust.dDB)
+                    bot_text = await _summarize_weather_with_llm(raw_text)
+                    await _save_weather_snapshot(session_id, triggering_user_id, t_cd, container.session_topic or "", qust.dDB, redis)
+                else:
+                    bot_text = "해당 날짜의 날씨 정보가 없습니다. 여행 날짜(달력)를 먼저 설정해주세요."
+
+                user_label = f"@weather {query}".strip() if query else "@weather"
+                await container.commit_turn(user_text=user_label, bot_text=bot_text, widget_state=ws)
+                await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
+            except Exception as e:
+                print(f"[WeatherService] 오류: {e}", flush=True)
+
+            bot_now    = datetime.now(tz=timezone.utc)
+            bot_msg_id = "msg_" + str(uuid.uuid4())[:12]
+            await Cacher.save_message(session_id, {
+                "message_id":   bot_msg_id,
+                "session_id":   session_id,
+                "sender_id":    None,
+                "sender_name":  "AI",
+                "sender_type":  "ai",
+                "message_type": "text",
+                "content":      bot_text,
+                "created_at":   bot_now.isoformat(),
+            }, redis, manager)
+            NotifyService.push_to_session(session_id, json.dumps({
+                "type":        "message",
+                "sender_id":   "bot",
+                "sender_name": "AI",
+                "content":     bot_text,
+                "msg_id":      bot_msg_id,
+                "ts":          bot_now.isoformat(),
+            }, ensure_ascii=False), exclude_user=triggering_user_id)
+
+            for char in bot_text:
+                yield char.encode()
+                await asyncio.sleep(0.02)
+
+        return StreamingResponse(_stream(), media_type="text/plain")
+
+    @staticmethod
     async def _stream_bot_response(session_id: str, query: str, triggering_user_id: str, redis: Any, manager: Any, use_pipeline: bool = False) -> StreamingResponse:
 
         async def _stream():
@@ -466,13 +720,21 @@ class ChatService:
                     for key in ("t_pn", "t_cd", "t_mp", "t_mk"):
                         if not new_widgets.get(key) and prev.get(key):
                             new_widgets[key] = prev[key]
+                    # @BOT/@SEARCH 모드: T_PN은 수동 편집 내용 보존 — LLM 출력 무시
+                    if not use_pipeline:
+                        new_widgets["t_pn"] = prev.get("t_pn", [])
                     await container.commit_turn(user_text=query, bot_text=bot_text, widget_state=new_widgets)
                     await ChatService._apply_title_change(container, session_id, triggering_user_id, redis, manager)
-                    if new_widgets.get("t_pn"):
+                    _notify = {}
+                    if use_pipeline and new_widgets.get("t_pn"):
+                        _notify["t_pn"] = new_widgets["t_pn"]
+                    if new_widgets.get("t_cd") and new_widgets.get("t_cd") != prev.get("t_cd"):
+                        _notify["t_cd"] = new_widgets["t_cd"]
+                    if _notify:
                         NotifyService.push_to_session(session_id, json.dumps({
                             "type": "widget_update",
                             "session_id": session_id,
-                            "widgets": {"t_pn": new_widgets["t_pn"]},
+                            "widgets": _notify,
                         }, ensure_ascii=False))
             except Exception as e:
                 print(f"[ChatService._stream_bot_response] {session_id} 오류: {e}")
@@ -667,6 +929,10 @@ class ChatService:
             if len(content) > _MAX_FILE_SIZE:
                 raise HTTPException(status_code=413, detail=f"파일 크기는 20MB를 초과할 수 없습니다: {file.filename}")
             content_type = (file.content_type or "").split(";")[0].strip()
+            if not content_type or content_type not in _ALLOWED_MIME_TYPES:
+                # 클립보드 붙여넣기 시 MIME이 비거나 octet-stream일 수 있음 → 확장자로 추론
+                _ext_fallback = os.path.splitext(file.filename or "")[1].lower().lstrip(".")
+                content_type = _EXT_TO_MIME.get(_ext_fallback, content_type)
             if content_type not in _ALLOWED_MIME_TYPES:
                 raise HTTPException(status_code=415, detail=f"허용되지 않는 파일 형식입니다: {file.filename}")
             original = os.path.basename(file.filename or "upload")
@@ -775,3 +1041,14 @@ class ChatService:
             "msg_id": bot_msg_id,
             "ts": bot_now.isoformat(),
         }, ensure_ascii=False))
+
+        # 이미지 분석 내용을 SSN_PCL(과거 대화)에 저장
+        try:
+            container = await ChatService._get_container(session_id, user_id, redis, manager)
+            img_label = ", ".join(safe_names)
+            await container.commit_turn(
+                user_text=f"[이미지 첨부: {img_label}]",
+                bot_text=bot_text,
+            )
+        except Exception as _hist_e:
+            print(f"[ChatService._respond_to_images] 대화 이력 저장 실패: {_hist_e}")

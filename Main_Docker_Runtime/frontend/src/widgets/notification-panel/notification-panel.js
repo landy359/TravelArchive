@@ -26,6 +26,64 @@
 import templateHtml from './notification-panel.html?raw';
 import './notification-panel.css';
 
+// ── 강제 로그아웃 카운트다운 모달 ───────────────────────────────
+function _showForceLogoutModal() {
+  // 이미 표시 중이면 중복 방지
+  if (document.getElementById('ta-force-logout-modal')) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ta-force-logout-modal';
+  overlay.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:99999',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'background:rgba(0,0,0,0.55)', 'backdrop-filter:blur(4px)',
+  ].join(';');
+
+  const box = document.createElement('div');
+  box.style.cssText = [
+    'background:#fff', 'border-radius:16px', 'padding:32px 28px 24px',
+    'max-width:360px', 'width:90%', 'text-align:center',
+    'box-shadow:0 8px 40px rgba(0,0,0,0.18)',
+    'animation:ta-modal-in .25s cubic-bezier(.22,1,.36,1)',
+  ].join(';');
+
+  const style = document.createElement('style');
+  style.textContent = '@keyframes ta-modal-in{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}';
+  document.head.appendChild(style);
+
+  let sec = 5;
+  box.innerHTML = `
+    <div style="font-size:36px;margin-bottom:12px">⚠️</div>
+    <div style="font-size:15px;font-weight:700;color:#111;margin-bottom:8px">다른 기기에서 로그인되었습니다</div>
+    <div style="font-size:13px;color:#666;line-height:1.6;margin-bottom:20px">
+      보안을 위해 현재 기기는 자동으로 로그아웃됩니다.
+    </div>
+    <div id="ta-flo-count" style="font-size:28px;font-weight:800;color:#ef4444;margin-bottom:20px">${sec}</div>
+    <button id="ta-flo-btn" style="
+      width:100%;padding:10px;border-radius:9px;border:none;
+      background:#ef4444;color:#fff;font-size:14px;font-weight:700;cursor:pointer;
+    ">지금 로그아웃</button>
+  `;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  const countEl = document.getElementById('ta-flo-count');
+  const btn     = document.getElementById('ta-flo-btn');
+
+  const doLogout = () => {
+    overlay.remove();
+    document.dispatchEvent(new CustomEvent('ta:force-logout'));
+  };
+
+  btn.addEventListener('click', doLogout);
+
+  const timer = setInterval(() => {
+    sec--;
+    if (countEl) countEl.textContent = sec;
+    if (sec <= 0) { clearInterval(timer); doLogout(); }
+  }, 1000);
+}
+
 /**
  * @param {HTMLElement} triggerBtn  벨 버튼
  * @param {HTMLElement} badgeEl     뱃지 카운트 요소
@@ -248,6 +306,10 @@ export function attach(triggerBtn, badgeEl, {
               if (!m) continue;
               try {
                 const ev = JSON.parse(m[1]);
+                if (ev.type === 'force_logout') {
+                  _showForceLogoutModal();
+                  continue;
+                }
                 if (ev.type === 'session_left') {
                   onSessionLeft(ev.session_id);
                   continue;

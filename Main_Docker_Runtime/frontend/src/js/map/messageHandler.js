@@ -53,11 +53,25 @@ export function setupMessageListener(map, markerManager, markerInfo, onLocationC
 
     } else if (type === 'ADD_MARKER') {
       if (lat == null || lng == null) return;
-      const pos = new kakao.maps.LatLng(lat, lng);
-      const id  = markerId || markerManager.extId();
-      markerManager.add(pos, id, markerInfo);
-      markerInfo.show(pos, id);
+      const pos  = new kakao.maps.LatLng(lat, lng);
+      const id   = markerId || markerManager.extId();
+      const meta = {
+        name:        e.data.title       || '',
+        description: e.data.description || '',
+      };
+      markerManager.add(pos, id, markerInfo, meta);
+      markerInfo.show(pos, id, meta);
       MapApi.addMarker(id, lat, lng).catch(() => {});
+
+    } else if (type === 'ADD_PLAN_MARKER') {
+      if (lat == null || lng == null) return;
+      const pos  = new kakao.maps.LatLng(lat, lng);
+      const id   = markerId || `plan_${lat}_${lng}`;
+      const meta = { name: e.data.title || '' };
+      markerManager.addPlan(pos, id, meta);
+
+    } else if (type === 'REMOVE_PLAN_MARKERS') {
+      markerManager.removeAllPlan();
 
     } else if (type === 'REMOVE_MARKER') {
       if (markerId) markerManager.remove(markerId, markerInfo);
@@ -66,6 +80,19 @@ export function setupMessageListener(map, markerManager, markerInfo, onLocationC
       markerManager.removeAll(markerInfo);
       MapApi.deleteAllMarkers().catch(() => {});
       window.parent?.postMessage({ type: 'DELETE_ALL_RESPONSE' }, '*');
+
+    } else if (type === 'PAN_TO') {
+      if (lat == null || lng == null) return;
+      const pos = new kakao.maps.LatLng(lat, lng);
+      map.setCenter(pos);
+      if (e.data.level != null) map.setLevel(e.data.level);
+
+    } else if (type === 'FIT_BOUNDS') {
+      const pts = e.data.markers;
+      if (!pts?.length) return;
+      const bounds = new kakao.maps.LatLngBounds();
+      pts.forEach(p => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
+      map.setBounds(bounds, 60); // padding 60px
 
     // ── 오버레이 컨트롤 명령 (부모에서 전달) ──────────────────────
     } else if (type === 'OC_ZOOM_IN') {

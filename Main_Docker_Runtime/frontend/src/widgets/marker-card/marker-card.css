@@ -113,6 +113,12 @@
   gap: 6px;
   padding: 3px 0 5px;
 }
+/* hidden 속성이 CSS display보다 우선하도록 강제 */
+.rs-skeleton[hidden],
+.rs-info-list[hidden],
+.rs-error-msg[hidden] {
+  display: none !important;
+}
 
 .rs-sk {
   height: 10px;

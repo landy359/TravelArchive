@@ -55,14 +55,16 @@ export function mount(parent, { markerId, seq, prepend = false, onClose } = {}) 
 
   // 캐시
   const $ = sel => el.querySelector(sel);
-  const title  = $('.rs-card-title');
-  const sk     = $('[data-sk]');
-  const list   = $('[data-list]');
-  const error  = $('[data-error]');
-  const road   = $('[data-road]');
-  const jibun  = $('[data-jibun]');
-  const region = $('[data-region]');
-  const coord  = $('[data-coord]');
+  const title   = $('.rs-card-title');
+  const sk      = $('[data-sk]');
+  const list    = $('[data-list]');
+  const error   = $('[data-error]');
+  const road    = $('[data-road]');
+  const jibun   = $('[data-jibun]');
+  const region  = $('[data-region]');
+  const coord   = $('[data-coord]');
+  const descRow = $('[data-desc-row]');
+  const desc    = $('[data-desc]');
   const copyBtn  = $('[data-copy]');
   const naverBtn = $('[data-naver]');
   const closeBtn = $('[data-close]');
@@ -99,11 +101,19 @@ export function mount(parent, { markerId, seq, prepend = false, onClose } = {}) 
     setData(payload) {
       _lat = payload.lat;
       _lng = payload.lng;
-      title.textContent  = payload.roadAddr || payload.jibunAddr || '알 수 없는 위치';
+      // 장소 이름이 있으면 우선, 없으면 주소로 fallback
+      title.textContent  = payload.name || payload.roadAddr || payload.jibunAddr || '알 수 없는 위치';
       road.textContent   = payload.roadAddr   || '—';
       jibun.textContent  = payload.jibunAddr  || '—';
       region.textContent = payload.regionText || '—';
       coord.textContent  = `${payload.lat.toFixed(6)}, ${payload.lng.toFixed(6)}`;
+      // 분류(description) 행: main_category / sub_category / kakao_category
+      if (payload.description) {
+        desc.textContent          = payload.description;
+        descRow.style.display     = '';
+      } else {
+        descRow.style.display     = 'none';
+      }
       sk.hidden    = true;
       error.hidden = true;
       list.hidden  = false;
