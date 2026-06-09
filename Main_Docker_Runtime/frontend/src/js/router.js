@@ -84,9 +84,13 @@ function _msgRole(msg, myId) {
   return msg.sender_id === myId ? 'user' : 'bot';
 }
 
+// 채팅 영역의 마지막 봇 말풍선(.message-row.bot) — 사진 스트립 anchor용
+function _lastBotRow(chatHistory) {
+  const bots = chatHistory.querySelectorAll('.message-row.bot');
+  return bots[bots.length - 1] || null;
+}
+
 export async function renderTripSelect(chatHistory, ssid) {
-  // 여행 계획이 있으면 봇 말풍선 밑에 장소 사진 스트립 렌더 (place_id 기반)
-  renderPlanPhotos(chatHistory, ssid).catch(() => {});
   const data = await fetchTripSelect(ssid);
   appendTripSelect(chatHistory, data, {
     onSelect: async (option) => {
@@ -284,6 +288,7 @@ export async function router(state, elements) {
         chatHistory.scrollTop = chatHistory.scrollHeight;
         _attachScrollPager(chatHistory, ssid, myId, isTeam, state);
         renderTripSelect(chatHistory, ssid).catch(() => {});
+        renderPlanPhotos(chatHistory, ssid, _lastBotRow(chatHistory)).catch(() => {});
       } catch (e) {
         console.error(e);
         removeLoadingIndicator(loadingId);
@@ -304,6 +309,7 @@ export async function router(state, elements) {
           chatHistory.scrollTop = chatHistory.scrollHeight;
           _attachScrollPager(chatHistory, ssid, myId2, isTeam2, state);
           renderTripSelect(chatHistory, ssid).catch(() => {});
+          renderPlanPhotos(chatHistory, ssid, _lastBotRow(chatHistory)).catch(() => {});
         } catch (e) {
           removeLoadingIndicator(loadingId2);
         }

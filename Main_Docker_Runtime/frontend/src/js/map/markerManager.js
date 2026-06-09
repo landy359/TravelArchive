@@ -109,7 +109,7 @@ export class MarkerManager {
     return this._planImage;
   }
 
-  addPlan(latlng, markerId, meta = {}) {
+  addPlan(latlng, markerId, markerInfo, meta = {}) {
     if (this._items.has(markerId)) return this._items.get(markerId);
     const marker = new kakao.maps.Marker({
       position: latlng,
@@ -129,16 +129,20 @@ export class MarkerManager {
     });
     this._items.set(markerId, marker);
     this._meta.set(markerId, meta);
+    // 부모 마커 패널과 동기화 (목록 카드 생성) — add()와 동일하게 통지
+    markerInfo?.show(latlng, markerId, meta);
     return marker;
   }
 
-  removeAllPlan() {
+  removeAllPlan(markerInfo) {
     const planIds = [...this._items.keys()].filter(id => id.startsWith('plan_'));
     planIds.forEach(id => {
       const m = this._items.get(id);
       if (m) m.setMap(null);
       this._items.delete(id);
       this._meta.delete(id);
+      // 부모 패널 카드도 제거 (MI_REMOVE) — 재동기화 시 잔상 방지
+      markerInfo?.hide(id);
     });
   }
 

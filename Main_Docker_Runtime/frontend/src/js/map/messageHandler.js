@@ -68,10 +68,10 @@ export function setupMessageListener(map, markerManager, markerInfo, onLocationC
       const pos  = new kakao.maps.LatLng(lat, lng);
       const id   = markerId || `plan_${lat}_${lng}`;
       const meta = { name: e.data.title || '' };
-      markerManager.addPlan(pos, id, meta);
+      markerManager.addPlan(pos, id, markerInfo, meta);
 
     } else if (type === 'REMOVE_PLAN_MARKERS') {
-      markerManager.removeAllPlan();
+      markerManager.removeAllPlan(markerInfo);
 
     } else if (type === 'REMOVE_MARKER') {
       if (markerId) markerManager.remove(markerId, markerInfo);

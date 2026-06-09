@@ -95,8 +95,10 @@ export const ChatManager = {
           removeLoading();
           state.isReceiving = false;
           if (state.currentSessionId) {
-            // renderTripSelect 내부에서 사진 스트립(renderPlanPhotos)도 함께 렌더됨
+            const botRow = botMsgDiv?.closest('.message-row') || null;
             renderTripSelect(chatHistory, state.currentSessionId).catch(() => {});
+            // 사진 스트립은 이 봇 말풍선 바로 뒤에 고정 (trip-select 카드와 무관)
+            renderPlanPhotos(chatHistory, state.currentSessionId, botRow).catch(() => {});
           }
         }
       );
@@ -175,9 +177,10 @@ export const ChatManager = {
           state.isReceiving = false;
           // 시나리오4: @PLAN 응답 완료 후 위젯 갱신
           if (isPlanMsg) {
+            const botRow = botMsgDiv?.closest('.message-row') || null;
             CalendarManager.loadTripRange(state.tempSessionId);
             ScheduleManager.loadPlan(state.tempSessionId);
-            renderPlanPhotos(chatHistory, state.tempSessionId).catch(() => {});
+            renderPlanPhotos(chatHistory, state.tempSessionId, botRow).catch(() => {});
           }
         }
       );

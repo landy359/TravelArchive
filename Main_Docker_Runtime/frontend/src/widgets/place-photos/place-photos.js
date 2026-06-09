@@ -9,7 +9,11 @@
  *
  * Usage:
  *   import { renderPlanPhotos } from '@/widgets/place-photos/place-photos.js';
- *   await renderPlanPhotos(chatHistory, sessionId);
+ *   await renderPlanPhotos(chatHistory, sessionId, anchorEl);
+ *
+ * anchorEl: 사진 스트립을 그 봇 말풍선(.message-row) 바로 뒤에 고정한다.
+ * 없으면 chatHistory 끝에 append. trip-select 카드 등 다른 렌더와 무관하게
+ * 항상 해당 말풍선 밑에 위치하도록 anchor 기반으로 삽입한다.
  */
 
 import { fetchTripPlan } from '../../core/api/sessions.js';
@@ -36,11 +40,8 @@ function _loadPhoto(img, placeId, card, track, strip) {
   tryNext();
 }
 
-export async function renderPlanPhotos(chatHistory, sessionId) {
+export async function renderPlanPhotos(chatHistory, sessionId, anchorEl = null) {
   if (!chatHistory || !sessionId) return;
-
-  // 재호출(세션 복귀·재렌더) 시 중복 방지: 기존 스트립 제거 후 다시 그림
-  chatHistory.querySelectorAll(`.${STRIP_CLASS}`).forEach(el => el.remove());
 
   let plan;
   try {
@@ -49,6 +50,10 @@ export async function renderPlanPhotos(chatHistory, sessionId) {
   } catch {
     return;
   }
+
+  // fetch 완료 후 한 번에 교체: 기존 스트립 제거(중복/잔상 방지) → 새로 1개만 삽입.
+  // (제거를 fetch 이후로 미뤄 "지웠다가 못 그리는" 깜빡임/소실을 막는다)
+  chatHistory.querySelectorAll(`.${STRIP_CLASS}`).forEach(el => el.remove());
 
   // 계획 내 전체 장소 중 place_id 보유분 수집 (등장 순서 유지, 중복 제거)
   const seen = new Set();
@@ -88,6 +93,11 @@ export async function renderPlanPhotos(chatHistory, sessionId) {
     _loadPhoto(img, p.placeId, card, track, strip);
   }
 
-  chatHistory.appendChild(strip);
+  // 봇 말풍선 바로 뒤에 고정. anchor 없으면 끝에 append.
+  if (anchorEl && anchorEl.parentNode === chatHistory) {
+    anchorEl.insertAdjacentElement('afterend', strip);
+  } else {
+    chatHistory.appendChild(strip);
+  }
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }
