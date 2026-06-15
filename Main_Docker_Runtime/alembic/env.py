@@ -10,7 +10,7 @@ from sqlalchemy import engine_from_config, pool
 # 경로 및 환경 변수 설정
 # =========================================================
 
-# 프로젝트 루트(/app)를 sys.path에 추가하여 module 임포트 보장
+# 프로젝트 루트(/app)를 sys.path에 추가
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
@@ -18,12 +18,12 @@ sys.path.append(str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / "setting" / ".env")
 
 # =========================================================
-# SQLAlchemy 모델 임포트 (Alembic autogenerate 감지 대상)
+# SQLAlchemy 모델 메타데이터
 # =========================================================
+# 마이그레이션은 모두 op.create_table 로 수기 작성하므로 autogenerate를
+# 쓰지 않는다. ORM Base/metadata가 없으므로 target_metadata는 None.
 
-from module.node.memory.postgres_tables import Base  # noqa: E402
-
-target_metadata = Base.metadata
+target_metadata = None
 
 # =========================================================
 # DATABASE_URL 주입
