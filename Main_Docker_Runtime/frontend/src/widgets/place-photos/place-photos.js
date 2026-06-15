@@ -25,6 +25,11 @@ const PHOTO_BASE  = '/resource/place_photos';
 const PHOTO_EXTS  = ['jpg', 'JPG', 'jpeg', 'png', 'webp'];
 const STRIP_CLASS = 'place-photo-strip';
 
+// 세션별 마지막으로 사진을 그린 일정 시그니처 (place_id 목록).
+// 일정이 바뀌지 않은 턴(일반 대화 등)에는 사진을 다시 그리지 않아
+// 기존 사진이 새 말풍선으로 밀려나는 것을 막는다.
+const _lastPhotoSig = new Map();
+
 // place_id 이미지를 확장자 폴백 체인으로 로드. 전부 실패하면 카드 제거.
 function _loadPhoto(img, placeId, card, track, strip) {
   let i = 0;
@@ -51,10 +56,6 @@ export async function renderPlanPhotos(chatHistory, sessionId, anchorEl = null) 
     return;
   }
 
-  // fetch 완료 후 한 번에 교체: 기존 스트립 제거(중복/잔상 방지) → 새로 1개만 삽입.
-  // (제거를 fetch 이후로 미뤄 "지웠다가 못 그리는" 깜빡임/소실을 막는다)
-  chatHistory.querySelectorAll(`.${STRIP_CLASS}`).forEach(el => el.remove());
-
   // 계획 내 전체 장소 중 place_id 보유분 수집 (등장 순서 유지, 중복 제거)
   const seen = new Set();
   const places = [];
@@ -66,7 +67,20 @@ export async function renderPlanPhotos(chatHistory, sessionId, anchorEl = null) 
       places.push({ placeId: pid, name: item.place || item.place_info?.name || '' });
     }
   }
-  if (!places.length) return;
+  // 봇 말풍선이 있어야만 그 안에 사진을 종속시켜 렌더한다.
+  // anchor(봇 말풍선)가 없으면(빈 세션·메시지 없음) 떠다니는 스트립을 만들지 않고,
+  // 남아있던 스트립도 정리한다. → 빈 세션에 사진 리스트가 뜨는 버그 방지.
+  const bodyWrap = anchorEl?.querySelector?.('.message-body-wrap');
+  if (!bodyWrap || !places.length) {
+    chatHistory.querySelectorAll(`.${STRIP_CLASS}`).forEach(el => el.remove());
+    return;
+  }
+
+  // 일정이 그대로면(이번 턴이 일정과 무관) 기존 스트립을 둔 채 종료.
+  // → '너는 누구니?' 같은 일반 대화마다 사진이 최신 말풍선으로 밀려나는 것 방지.
+  const sig = places.map(p => p.placeId).join('|');
+  const existing = chatHistory.querySelector(`.${STRIP_CLASS}`);
+  if (existing && _lastPhotoSig.get(sessionId) === sig) return;
 
   const strip = document.createElement('div');
   strip.className = STRIP_CLASS;
@@ -93,11 +107,11 @@ export async function renderPlanPhotos(chatHistory, sessionId, anchorEl = null) 
     _loadPhoto(img, p.placeId, card, track, strip);
   }
 
-  // 봇 말풍선 바로 뒤에 고정. anchor 없으면 끝에 append.
-  if (anchorEl && anchorEl.parentNode === chatHistory) {
-    anchorEl.insertAdjacentElement('afterend', strip);
-  } else {
-    chatHistory.appendChild(strip);
-  }
+  // 새 스트립을 그릴 게 확정된 지금에서야 기존 스트립 제거 (중복/잔상 방지)
+  chatHistory.querySelectorAll(`.${STRIP_CLASS}`).forEach(el => el.remove());
+
+  // 봇 말풍선 행 내부(message-body-wrap)에 종속시킨다 — 메시지와 한 덩어리로 고정.
+  bodyWrap.appendChild(strip);
+  _lastPhotoSig.set(sessionId, sig);
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }

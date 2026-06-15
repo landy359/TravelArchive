@@ -1,13 +1,12 @@
 /**
  * settings.js
  * 설정 탭 렌더링.
- * - 비로그인: 배경 투명도 + 텍스트 표시 설정
- * - 로그인 후: 배경 투명도 + 알림 설정 + 텍스트 표시 설정
+ * - 배경 투명도 + 텍스트 표시 설정
  *
  * 개인 설정(프로필·스타일·여행스타일·계정관리)은 account.js 에서 처리합니다.
  */
 
-import { BackendHooks, TokenManager } from './api.js';
+import { BackendHooks } from './api.js';
 
 // --------------------------------------------------
 // 지원 폰트 목록
@@ -69,46 +68,6 @@ function buildTransparencyHTML() {
   `;
 }
 
-function buildNotificationsHTML() {
-  return `
-    <div class="card-base">
-      <label class="label-base">알림</label>
-      <div class="toggle-rows">
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">응답 완료시 알림</span>
-            <span class="toggle-desc">AI 응답이 완료되면 알림을 받습니다</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="notifyResponse">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">날씨 변동시 알림</span>
-            <span class="toggle-desc">여행 지역의 날씨 변화를 알려드립니다</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="notifyWeather">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">추천 일정 알림 <span class="badge-small">지역축제</span></span>
-            <span class="toggle-desc">방문 예정 지역의 축제 및 행사를 추천해드립니다</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="notifyFestival">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function buildTypographyHTML() {
   const fontBtns = FONTS.map(f => `
     <button class="font-btn" data-font-key="${f.key}" style="font-family: ${f.family};" type="button">
@@ -156,12 +115,9 @@ function buildTypographyHTML() {
 // --------------------------------------------------
 
 export function renderSettingsPage(container) {
-  const isLoggedIn = TokenManager.isLoggedIn();
-
   container.innerHTML = `
     <div class="page-view-content">
       ${buildTransparencyHTML()}
-      ${isLoggedIn ? buildNotificationsHTML() : ''}
       ${buildTypographyHTML()}
     </div>
   `;
@@ -181,33 +137,6 @@ export function renderSettingsPage(container) {
 
   // ── 텍스트 표시 설정 초기화 ──
   _initTypography(container);
-
-  // ── 알림 토글 (로그인 후만) ──
-  if (!isLoggedIn) return;
-
-  BackendHooks.fetchSettings().then(result => {
-    if (!result) return;
-    // GET /api/settings 응답: { data: {ui_settings}, profile: {}, ... }
-    // ui_settings 내 notifications 는 중첩 객체로 저장됨
-    const uiSettings = result.data || result;
-    const notify = uiSettings.notifications || {};
-    const applyToggle = (id, val) => {
-      const el = container.querySelector(`#${id}`);
-      if (el) el.checked = !!val;
-    };
-    applyToggle('notifyResponse', notify.response);
-    applyToggle('notifyWeather',  notify.weather);
-    applyToggle('notifyFestival', notify.festival);
-  }).catch(console.error);
-
-  [
-    ['notifyResponse', 'notifications.response'],
-    ['notifyWeather',  'notifications.weather'],
-    ['notifyFestival', 'notifications.festival'],
-  ].forEach(([id, key]) => {
-    const el = container.querySelector(`#${id}`);
-    if (el) el.addEventListener('change', () => BackendHooks.saveUserSetting(key, el.checked));
-  });
 }
 
 // --------------------------------------------------

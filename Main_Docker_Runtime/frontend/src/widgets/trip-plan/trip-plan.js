@@ -266,7 +266,7 @@ export function mount({ planContentEl }) {
 
   function _renderPlan(plan) {
     planContentEl.innerHTML = '';
-    if (!plan || plan.length === 0 || plan.every(d => d.items.length === 0)) {
+    if (!plan || plan.length === 0 || plan.every(d => !(d.items || []).length)) {
       renderEmpty(planContentEl);
       return;
     }
@@ -279,18 +279,22 @@ export function mount({ planContentEl }) {
   }
 
   async function _onRemoveItem(dayIdx, itemIdx) {
-    if (!_currentPlan[dayIdx]) return;
+    const day = _currentPlan[dayIdx];
+    if (!day || !Array.isArray(day.items) || !day.items[itemIdx]) return;
 
-    _currentPlan[dayIdx].items.splice(itemIdx, 1);
-    _currentPlan[dayIdx].items.forEach((it, i) => { it.order = i + 1; });
+    // 삭제할 항목의 지도 마커만 정확히 제거 (전체 재싱크 깜빡임 방지)
+    const removed = day.items[itemIdx];
+    const removedId = `plan_d${dayIdx}_${_slug(removed.place || removed.place_info?.name || '')}`;
+    const iframe = document.querySelector('#kakaoMapContainer iframe');
+    iframe?.contentWindow?.postMessage({ type: 'REMOVE_PLAN_MARKER', markerId: removedId }, '*');
 
-    // 플랜 마커 전체 재동기화 (stable ID 사용 — index drift 없음)
-    _syncPlanToMap(_currentPlan);
+    day.items.splice(itemIdx, 1);
+    day.items.forEach((it, i) => { it.order = i + 1; });
 
     if (_currentSessionId) {
       try {
         const { saveTripPlan } = await import('../../core/api/sessions.js');
-        const raw = _currentPlan.map(d => d.items.map(it => ({
+        const raw = _currentPlan.map(d => (d.items || []).map(it => ({
           date:       d.date || '',
           order:      it.order,
           place:      it.place || '',

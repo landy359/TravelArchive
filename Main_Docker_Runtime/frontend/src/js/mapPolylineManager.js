@@ -84,17 +84,19 @@ class PolylineManager {
   /**
    * 마커 좌표 배열로 폴리라인을 그립니다.
    * @param {Array<{ markerId, lat, lng }>} markers
+   * @param {boolean} [optimize=true] false면 전달된 순서 그대로 연결
+   *   (plan 마커는 LLM이 일정 순서로 최적화했으므로 재정렬하지 않음)
    */
-  drawPolyline(markers) {
+  drawPolyline(markers, optimize = true) {
     this.clear();
 
     if (markers.length < 2) return; // 1개 이하면 경로 없음
 
-    // 최적 순서 계산
-    const optimized = calculateOptimalPath(markers);
+    // optimize=true면 NN 최적화, false면 전달 순서 유지
+    const ordered = optimize ? calculateOptimalPath(markers) : markers;
 
     // LatLng 배열로 변환
-    const path = optimized.map(
+    const path = ordered.map(
       m => new kakao.maps.LatLng(m.lat, m.lng)
     );
 

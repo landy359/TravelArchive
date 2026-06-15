@@ -25,6 +25,7 @@ _DAY_RE        = _re.compile(r'(\d+)\s*일\s*차')
 _EDIT_RE       = _re.compile(r'추가|제거|삭제|바꿔|교체|수정|넣어|빼|변경|제외')
 _RESET_RE      = _re.compile(r'다시\s*(?:세워|짜|만들어|계획|작성)|새로\s*(?:세워|짜|만들어|계획|작성)|처음부터\s*다시|새\s*여행\s*계획')
 _RESTAURANT_RE = _re.compile(r'식당|음식점|맛집|레스토랑|밥집')
+_PHOTO_RE      = _re.compile(r'포토\s*스?팟|포토|사진\s*(?:명소|스팟|찍|맛집)?|인생\s*샷|뷰\s*맛집|경관|절경|풍경')
 _DATE_CHANGE_RE = _re.compile(r'날짜.*(?:바꿔|바꿔줘|변경|수정|고쳐)|달력.*(?:수정|바꿔|변경)|\d+월\s*\d+일.*(?:부터|~|까지)')
 
 
@@ -163,6 +164,20 @@ class Port3:
         import re as _re2
         return _re2.sub(r'[\s\-·.·,()（）\[\]「」『』]', '', name).lower()
 
+    @staticmethod
+    def _cap_per_day(t_pn_raw: list | None, max_items: int) -> list | None:
+        """일차별 장소 수를 max_items 이하로 자르고 order를 0부터 재부여."""
+        if not t_pn_raw:
+            return t_pn_raw
+        for day in t_pn_raw:
+            if not isinstance(day, list):
+                continue
+            del day[max_items:]
+            for i, item in enumerate(day):
+                if isinstance(item, dict):
+                    item["order"] = i
+        return t_pn_raw
+
     def _enrich_place_info(self, t_pn_raw: list | None, sdb_items) -> list | None:
         """LLM이 생성한 place_info를 qust.sDB 실제 데이터로 교정 (DB 접근 X)."""
         if not t_pn_raw or not sdb_items:
@@ -247,7 +262,7 @@ class Port3:
                 f"{i+1}일차: 20{d[:2]}년 {int(d[2:4])}월 {int(d[4:6])}일 (date코드: {d})"
                 for i, d in enumerate(cd_codes)
             ]
-            skeleton = [[{"date": d, "order": i} for i in range(4)] for d in cd_codes]
+            skeleton = [[{"date": d, "order": i} for i in range(5)] for d in cd_codes]
             extra.append(
                 f"[여행 날짜 ({n}일) — 절대 규칙]\n"
                 + "\n".join(day_lines)
@@ -255,7 +270,7 @@ class Port3:
                 + f"★ T_PN과 T_PN_B 모든 date 필드는 위 date코드만 사용. 다른 날짜 코드 사용 시 오답.\n"
                 + f"★ T_PN, T_PN_B 외부 배열 수 = {n}개 (날짜 수와 반드시 일치). 반드시 [[day1 items], [day2 items], ...] 형식.\n"
                 + f"★ 모든 날짜({n}일치)에 장소를 채울 것.\n"
-                + f"★ 각 일차 T_PN에 최소 3개 이상의 서로 다른 장소를 채울 것. 1~2개만 넣으면 오답.\n"
+                + f"★ 각 일차 T_PN에 서로 다른 장소를 3~5개 채울 것 (5개 초과 금지). 관광지·식당·카페·포토스팟 등 카테고리를 다양하게 섞을 것.\n"
                 + (
                     "▶ 사용자가 상세 설명을 원합니다. CC에 일차별 장소와 이동 동선을 충분히 설명하세요."
                     + (" T_PN에 있는 장소 이름만 사용.\n" if qust.T_PN else " 계획된 장소를 일차별로 상세히 서술하세요.\n")
@@ -265,6 +280,13 @@ class Port3:
                 + (
                     "▶ 사용자가 식당/음식점을 요청했습니다. 매 일차 T_PN에 반드시 식당·음식점 장소를 1개 이상 포함하세요.\n"
                     if _RESTAURANT_RE.search(qust.CC or "")
+                    else ""
+                )
+                + (
+                    "▶ 사용자가 포토스팟/사진 명소를 요청했습니다. 매 일차 T_PN에 '포토스팟' 카테고리 장소를 "
+                    "1~2개 포함하되, 나머지는 관광지·식당·카페 등으로 다양하게 채워 균형 잡힌 일정을 만드세요. "
+                    "포토스팟만으로 채우지 마세요. 포토스팟 장소명은 DB 그대로 정확히 사용하세요.\n"
+                    if _PHOTO_RE.search(qust.CC or "")
                     else ""
                 )
                 + f"\nT_PN / T_PN_B skeleton (동일한 중첩 구조. date 코드 그대로 유지, place·place_info만 실제 장소로 채울 것):\n"
@@ -282,7 +304,11 @@ class Port3:
                 if places:
                     pn_lines.append(f"{i+1}일차 ({date_code}): {places}")
             if pn_lines:
-                extra.append("[현재 저장된 여행 일정 — CC 작성 시 반드시 이 일정 기준으로 설명할 것]:\n" + "\n".join(pn_lines))
+                extra.append(
+                    "[참고: 현재 저장된 여행 일정]:\n" + "\n".join(pn_lines)
+                    + "\n▶ 사용자가 일정·여행에 대해 물을 때만 이 내용을 참고하라. "
+                    "일반 질문(인사·정체성·잡담)에는 이 일정을 언급하지 마라."
+                )
         if qust.sDB and isinstance(qust.sDB, dict):
             lines = []
             for day, cat_dict in qust.sDB.items():
@@ -385,6 +411,10 @@ class Port3:
         # SDB 실제 좌표/주소로 place_info 교정 (LLM 할루시네이션 방지)
         t_pn_a_raw = self._enrich_place_info(t_pn_a_raw, qust.sDB)
         t_pn_b_raw = self._enrich_place_info(t_pn_b_raw, qust.sDB)
+
+        # 일차별 최대 5개 제한 (LLM이 초과해도 강제 truncate)
+        t_pn_a_raw = Port3._cap_per_day(t_pn_a_raw, 5)
+        t_pn_b_raw = Port3._cap_per_day(t_pn_b_raw, 5)
 
         if sl_ctx:
             if t_pn_a_raw is not None:

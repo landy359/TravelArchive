@@ -45,7 +45,7 @@ MAX_DAYS: int = 7
 
 # DB에서 1차로 긁어올 카테고리별 최대 개수 제한
 LIMIT_NORMAL: int = 30
-LIMIT_PHOTO: int = 5
+LIMIT_PHOTO: int = 12
 
 # 권역별 다중 앵커 좌표 (동부/서부는 세분화하여 다양성 확보)
 REGION_CENTERS: dict[str, list[tuple[float, float]]] = {

@@ -70,6 +70,9 @@ export function setupMessageListener(map, markerManager, markerInfo, onLocationC
       const meta = { name: e.data.title || '' };
       markerManager.addPlan(pos, id, markerInfo, meta);
 
+    } else if (type === 'REMOVE_PLAN_MARKER') {
+      if (markerId) markerManager.removePlan(markerId, markerInfo);
+
     } else if (type === 'REMOVE_PLAN_MARKERS') {
       markerManager.removeAllPlan(markerInfo);
 

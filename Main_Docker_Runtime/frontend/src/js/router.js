@@ -341,6 +341,7 @@ export async function router(state, elements) {
               // bot message may carry t_sl widget — refresh select widget
               if (event.sender_id === 'bot' || event.sender_id === null) {
                 renderTripSelect(chatHistory, ssid).catch(() => {});
+                renderPlanPhotos(chatHistory, ssid, _lastBotRow(chatHistory)).catch(() => {});
               }
             }
           } else if (event.type === 'kicked') {
@@ -395,6 +396,8 @@ export async function router(state, elements) {
             }
             if (event.widgets?.t_pn) {
               ScheduleManager.loadPlan(ssid);
+              // plan 위젯이 서버에 저장된 신뢰 신호 → 사진 스트립 재렌더 (완료-콜백 레이스 보완)
+              renderPlanPhotos(chatHistory, ssid, _lastBotRow(chatHistory)).catch(() => {});
             }
             if (event.widgets?.t_cd) {
               // LLM이 여행 날짜(T_CD)를 변경했으면 캘린더 재로드

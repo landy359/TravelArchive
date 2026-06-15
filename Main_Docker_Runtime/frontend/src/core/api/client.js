@@ -42,15 +42,27 @@ export async function tryRefresh() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: TokenManager.getRefreshToken() }),
     });
-    if (!res.ok) { TokenManager.clearAll(); return false; }
+    if (!res.ok) { _expireSession(); return false; }
     const data = await res.json();
     if (data.access_token) {
       TokenManager.setTokens(data.access_token, TokenManager.getRefreshToken());
       return true;
     }
-    TokenManager.clearAll();
+    _expireSession();
     return false;
   } catch {
     return false;
   }
+}
+
+/**
+ * refresh 토큰이 만료/무효 → 세션 종료.
+ * 토큰 정리 후 UI가 로그아웃 상태로 전환되도록 ta:logout 이벤트 발행.
+ * (이게 없으면 토큰만 비고 화면은 로그인 상태로 남아 "자동 로그아웃 안 됨")
+ */
+function _expireSession() {
+  TokenManager.clearAll();
+  try {
+    document.dispatchEvent(new CustomEvent('ta:logout'));
+  } catch { /* document 없는 환경 무시 */ }
 }

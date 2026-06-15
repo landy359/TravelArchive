@@ -118,6 +118,21 @@ export function attach(triggerBtn, badgeEl, {
   let pollTimer = null;
   let sseConn   = null;
 
+  // ── 데스크탑 알림 (창 백그라운드 시) ──
+  const _maybeDesktopNotify = (message, sessionId) => {
+    try {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      if (!document.hidden) return; // 보고 있으면 굳이 안 띄움
+      const n = new Notification('TravelArchive', { body: message, tag: 'ta-response' });
+      n.onclick = () => {
+        window.focus();
+        if (sessionId) window.location.hash = `#/chat/${sessionId}`;
+        n.close();
+      };
+    } catch { /* 무음 */ }
+  };
+
   // ── 뱃지 ──
   const updateBadge = (count) => {
     if (!badgeEl) return;
@@ -322,10 +337,14 @@ export function attach(triggerBtn, badgeEl, {
                 if (ev.sub_type === 'new_message') {
                   if (ev.session_id) onNewMessage(ev.session_id, ev);
                 } else {
-                  // 초대 등 일반 알림 — 뱃지 증가
+                  // 초대·응답완료·날씨변동 등 일반 알림 — 뱃지 증가
                   const cur = parseInt(badgeEl?.textContent) || 0;
                   updateBadge(cur + 1);
                   if (isOpen()) refresh();
+                  // 창이 백그라운드(최소화·다른 탭)일 때 데스크탑 알림
+                  if (ev.sub_type === 'response_complete') {
+                    _maybeDesktopNotify(ev.message || 'AI 응답이 완료되었습니다.', ev.session_id);
+                  }
                 }
               } catch {}
             }

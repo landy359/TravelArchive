@@ -95,6 +95,41 @@ async def _save_weather_snapshot(session_id: str, owner_id: str, t_cd: list, ssn
     }
     await redis.set_json(f"session:{session_id}:weather_snapshot", snapshot, 2592000)
     await redis.execute({"action": "sadd", "key": "weather_snapshots:sessions", "member": session_id})
+
+
+async def _maybe_notify_response_complete(session_id: str, user_id: str, redis: Any, manager: Any) -> None:
+    """AI 응답 완료 시 요청자에게 알림 push (설정 '응답 완료시 알림' ON일 때만).
+
+    창 최소화·다른 세션·다른 탭에 있어도 SSE 알림 큐로 전달되어
+    뱃지/브라우저 알림으로 완료를 알린다. 본인 opt-in 토글(기본 OFF)로 게이트.
+    """
+    if not user_id:
+        return
+    try:
+        ui = await Cacher.get_ui_settings(user_id, redis)
+        notif_cfg = ui.get("notifications") if isinstance(ui, dict) else None
+        if not (isinstance(notif_cfg, dict) and notif_cfg.get("response")):
+            return
+        notif_id = "notif_" + str(uuid.uuid4())[:12]
+        message  = "AI 응답이 완료되었습니다."
+        notif_data = {
+            "notification_id": notif_id,
+            "user_id":         user_id,
+            "type":            "response_complete",
+            "reference_type":  "session",
+            "reference_id":    session_id,
+            "message":         message,
+            "is_read":         False,
+            "created_at":      datetime.now(tz=timezone.utc).isoformat(),
+        }
+        await Cacher.save_notification(user_id, notif_data, redis, manager)
+        NotifyService.push_to_user(user_id, {
+            "sub_type":   "response_complete",
+            "message":    message,
+            "session_id": session_id,
+        })
+    except Exception as _e:
+        print(f"[ResponseNotify] {session_id} 알림 실패: {_e}", flush=True)
 _EXT_TO_MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
 
 
@@ -433,18 +468,24 @@ class ChatService:
             query = _re.sub(r'^@WEATHER\s*', '', message, flags=_re.IGNORECASE).strip()
             return await ChatService._weather_response(session_id, query, user_id, redis, manager)
 
+        # @PLAN만 여행 일정 파이프라인(ROUTER). 그 외 일반 대화는 simple 응답.
+        # (여행 JSON 라우터는 '넌 누구니?' 같은 일반 질문도 여행 얘기로 답하므로 분기)
         if not is_team:
             content = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
             use_pipeline = bool(_re.match(r'^@PLAN', content, _re.IGNORECASE))
             content = _re.sub(r'^@PLAN\s*', '', content, flags=_re.IGNORECASE).strip()
-            return await ChatService._stream_bot_response(session_id, content, user_id, redis, manager, use_pipeline=use_pipeline)
+            if use_pipeline:
+                return await ChatService._stream_bot_response(session_id, content, user_id, redis, manager, use_pipeline=True)
+            return await ChatService._stream_simple_bot_response(session_id, content, user_id, redis, manager)
 
-        # 팀 세션
-        content = _re.sub(r'^@BOT\s+', '', message, flags=_re.IGNORECASE).strip()
-        use_pipeline = bool(_re.match(r'^@PLAN', content, _re.IGNORECASE))
-        content = _re.sub(r'^@PLAN\s*', '', content, flags=_re.IGNORECASE).strip()
-        if content or message.upper().startswith(('@BOT', '@PLAN')):
-            return await ChatService._stream_bot_response(session_id, content, user_id, redis, manager, use_pipeline=use_pipeline)
+        # 팀 세션: @BOT/@PLAN로 시작할 때만 AI가 응답. 일반 팀 채팅엔 끼어들지 않음.
+        if _re.match(r'^@(BOT|PLAN)\b', message.strip(), _re.IGNORECASE):
+            content = _re.sub(r'^@BOT\s+', '', message.strip(), flags=_re.IGNORECASE).strip()
+            use_pipeline = bool(_re.match(r'^@PLAN', content, _re.IGNORECASE))
+            content = _re.sub(r'^@PLAN\s*', '', content, flags=_re.IGNORECASE).strip()
+            if use_pipeline:
+                return await ChatService._stream_bot_response(session_id, content, user_id, redis, manager, use_pipeline=True)
+            return await ChatService._stream_simple_bot_response(session_id, content, user_id, redis, manager)
 
         _spawn_task(ChatService._run_ingest(session_id, user_id, message, redis, manager))
 
@@ -761,6 +802,7 @@ class ChatService:
                 "msg_id": bot_msg_id,
                 "ts": bot_now.isoformat(),
             }, ensure_ascii=False), exclude_user=triggering_user_id)
+            await _maybe_notify_response_complete(session_id, triggering_user_id, redis, manager)
 
             for char in bot_text:
                 yield char.encode()
@@ -802,6 +844,7 @@ class ChatService:
                 "msg_id": bot_msg_id,
                 "ts": bot_now.isoformat(),
             }, ensure_ascii=False), exclude_user=triggering_user_id)
+            await _maybe_notify_response_complete(session_id, triggering_user_id, redis, manager)
 
             for char in bot_text:
                 yield char.encode()

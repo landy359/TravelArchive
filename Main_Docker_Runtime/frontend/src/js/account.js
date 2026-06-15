@@ -144,15 +144,6 @@ function buildStyleHTML() {
       </div>
 
       <div class="form-row">
-        <label class="form-label" for="emojiUsage">이모지 사용</label>
-        <select id="emojiUsage" class="select-base">
-          <option value="often">자주 사용</option>
-          <option value="sometimes">가끔 사용</option>
-          <option value="never">사용 안 함</option>
-        </select>
-      </div>
-
-      <div class="form-row">
         <label class="form-label" for="headerUsage">헤더 및 목록 사용</label>
         <select id="headerUsage" class="select-base">
           <option value="often">자주 사용</option>
@@ -228,30 +219,7 @@ function buildTravelStyleHTML() {
         </div>
       </div>
 
-      <div class="form-row">
-        <label class="form-label">하루 이동거리 제한</label>
-        <div class="distance-input-row">
-          <input type="number" id="maxDistance" class="input-base input-number"
-            placeholder="0" min="0" max="9999">
-          <select id="distanceUnit" class="select-base select-unit">
-            <option value="km">km</option>
-            <option value="mile">mile</option>
-          </select>
-          <span class="form-hint">이하 (0 = 제한 없음)</span>
-        </div>
-      </div>
-
       <div class="toggle-rows" style="margin-top:4px;">
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">날씨·혼잡도 반영</span>
-            <span class="toggle-desc">날씨와 혼잡도를 고려한 일정을 추천합니다</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="weatherCrowdToggle">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
         <div class="toggle-row">
           <div class="toggle-info">
             <span class="toggle-label">반려견 동반</span>
@@ -452,7 +420,6 @@ async function loadPersonalSettings(container) {
   // AI 스타일
   const style = settings.style || {};
   setChips(container, 'characteristicsGroup', style.characteristics || []);
-  setVal(container, 'emojiUsage',          style.emoji_usage);
   setVal(container, 'headerUsage',         style.header_usage);
   setVal(container, 'customInstructions',  style.custom_instructions);
   setVal(container, 'additionalInfo',      style.additional_info);
@@ -464,9 +431,6 @@ async function loadPersonalSettings(container) {
   setChips(container, 'accommodationGroup',travel.accommodations || []);
   setChips(container, 'foodPrefGroup',     travel.food_prefs    || []);
   setChips(container, 'allergyGroup',      travel.allergies     || []);
-  setVal(container,   'maxDistance',       travel.max_distance);
-  setVal(container,   'distanceUnit',      travel.distance_unit);
-  setToggle(container,'weatherCrowdToggle',travel.weather_crowd);
   setToggle(container,'petFriendlyToggle', travel.pet_friendly);
   setChips(container, 'disabilityGroup',   travel.disabilities  || []);
   setVal(container,   'disabilityOther',   travel.disability_other);
@@ -511,7 +475,6 @@ function bindStyleEvents(container) {
     try {
       await BackendHooks.saveUserStyle({
         characteristics:     getChips(container, 'characteristicsGroup'),
-        emoji_usage:         container.querySelector('#emojiUsage')?.value,
         header_usage:        container.querySelector('#headerUsage')?.value,
         custom_instructions: container.querySelector('#customInstructions')?.value?.trim(),
         additional_info:     container.querySelector('#additionalInfo')?.value?.trim(),
@@ -535,9 +498,6 @@ function bindTravelStyleEvents(container) {
         accommodations:   getChips(container, 'accommodationGroup'),
         food_prefs:       getChips(container, 'foodPrefGroup'),
         allergies:        getChips(container, 'allergyGroup'),
-        max_distance:     parseInt(container.querySelector('#maxDistance')?.value || '0', 10),
-        distance_unit:    container.querySelector('#distanceUnit')?.value,
-        weather_crowd:    container.querySelector('#weatherCrowdToggle')?.checked,
         pet_friendly:     container.querySelector('#petFriendlyToggle')?.checked,
         disabilities:     getChips(container, 'disabilityGroup'),
         disability_other: container.querySelector('#disabilityOther')?.value?.trim(),

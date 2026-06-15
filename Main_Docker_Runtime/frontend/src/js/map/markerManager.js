@@ -38,17 +38,22 @@ export class MarkerManager {
   }
 
   _updatePolyline() {
-    if (!this._poly || this._items.size < 2) {
-      this._poly?.clear();
-      return;
-    }
-    this._poly.drawPolyline(
-      [...this._items.entries()].map(([id, m]) => ({
+    // 폴리라인 = 여행 일정 경로. plan_ 마커만, 삽입(일정) 순서 그대로 연결.
+    // 사용자 click_/ext_ 마커는 독립 핀이므로 경로에서 제외 (동선 오염 방지).
+    if (!this._poly) return;
+    const planMarkers = [...this._items.entries()]
+      .filter(([id]) => id.startsWith('plan_'))
+      .map(([id, m]) => ({
         markerId: id,
         lat: m.getPosition().getLat(),
         lng: m.getPosition().getLng(),
-      }))
-    );
+      }));
+    if (planMarkers.length < 2) {
+      this._poly.clear();
+      return;
+    }
+    // optimize=false: LLM이 짜준 일정 순서 유지 (NN 재정렬 금지)
+    this._poly.drawPolyline(planMarkers, false);
   }
 
   add(latlng, markerId, markerInfo, meta = {}) {
@@ -131,7 +136,19 @@ export class MarkerManager {
     this._meta.set(markerId, meta);
     // 부모 마커 패널과 동기화 (목록 카드 생성) — add()와 동일하게 통지
     markerInfo?.show(latlng, markerId, meta);
+    // 일정 경로 폴리라인 갱신 (plan_ 마커 삽입 순서대로)
+    this._updatePolyline();
     return marker;
+  }
+
+  removePlan(markerId, markerInfo) {
+    // plan_ 마커 1개만 제거 (PN 항목 개별 삭제 연동). 나머지는 그대로 유지.
+    const m = this._items.get(markerId);
+    if (m) m.setMap(null);
+    this._items.delete(markerId);
+    this._meta.delete(markerId);
+    markerInfo?.hide(markerId);
+    this._updatePolyline();
   }
 
   removeAllPlan(markerInfo) {
@@ -144,6 +161,8 @@ export class MarkerManager {
       // 부모 패널 카드도 제거 (MI_REMOVE) — 재동기화 시 잔상 방지
       markerInfo?.hide(id);
     });
+    // 남은 plan 마커 기준 폴리라인 갱신 (없으면 clear)
+    this._updatePolyline();
   }
 
   async loadExisting(markerInfo) {

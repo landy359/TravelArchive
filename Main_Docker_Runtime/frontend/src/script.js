@@ -370,7 +370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     import('./js/api.js').then(({ BackendHooks, TokenManager }) => {
       const rt = TokenManager.getRefreshToken?.();
       if (rt) BackendHooks.logout?.(rt).catch(() => {});
-      TokenManager.clearTokens?.();
+      TokenManager.clearAll?.();
     }).catch(() => {});
     document.dispatchEvent(new CustomEvent('ta:logout'));
   });

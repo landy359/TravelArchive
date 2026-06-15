@@ -35,14 +35,18 @@ export const TokenManager = {
   getEmail()        { return localStorage.getItem(this._keys.email) || ''; },
 
   /**
-   * 토큰 존재 + JWT exp 미만료인 경우만 true.
-   * 만료 시 localStorage 자동 초기화.
+   * 로그인 상태 = 유효한(미만료) refresh token 보유.
+   *
+   * access token(30분)은 만료돼도 authFetch가 refresh로 자동 재발급하므로
+   * 세션 수명의 기준은 refresh token(7일)이다. access exp로 판단하면
+   * 30분마다 refresh까지 날려 조기 로그아웃되므로 refresh exp를 본다.
+   * refresh가 만료/손상이면 clearAll 후 false.
    */
   isLoggedIn() {
-    const token = localStorage.getItem(this._keys.access);
-    if (!token) return false;
+    const refresh = localStorage.getItem(this._keys.refresh);
+    if (!refresh) return false;
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const payload = JSON.parse(atob(refresh.split('.')[1]));
       if (payload.exp && Date.now() / 1000 > payload.exp) {
         this.clearAll();
         return false;
